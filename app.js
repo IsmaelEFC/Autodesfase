@@ -20,49 +20,144 @@ let cameraStream = null;
 
 // Función para iniciar la cámara
 async function iniciarCamara() {
+  console.log('Iniciando cámara...');
   try {
     // Detener la cámara actual si existe
     await detenerCamara();
     
-    // Intentar con cámara trasera primero
+    // Limpiar cualquier error previo
+    const statusToast = document.getElementById('status-toast');
+    if (statusToast) {
+      statusToast.textContent = '';
+      statusToast.className = '';
+    }
+    
+    // Verificar si el navegador soporta getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Tu navegador no soporta el acceso a la cámara');
+    }
+    
+    // Configuración de la cámara
+    const constraints = {
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: { ideal: 'environment' },
+        frameRate: { ideal: 30, max: 60 }
+      },
+      audio: false
+    };
+    
+    // Intentar con la configuración ideal primero
     try {
-      cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: "environment" } },
-        audio: false
-      });
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Cámara trasera iniciada con éxito');
     } catch (e) {
+      console.warn('No se pudo acceder a la cámara trasera, intentando con cámara frontal', e);
       // Si falla, intentar con cualquier cámara
-      cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
+      constraints.video.facingMode = 'user';
+      cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Cámara frontal iniciada con éxito');
     }
     
     if (camera) {
       camera.srcObject = cameraStream;
+      
       // Esperar a que la cámara esté lista
       return new Promise((resolve) => {
-        camera.onloadedmetadata = () => {
-          camera.play().then(resolve).catch(console.error);
+        const onLoaded = () => {
+          camera.removeEventListener('loadedmetadata', onLoaded);
+          console.log('Metadatos de la cámara cargados');
+          camera.play()
+            .then(() => {
+              console.log('Reproducción de cámara iniciada');
+              resolve();
+            })
+            .catch(err => {
+              console.error('Error al reproducir la cámara:', err);
+              mostrarEstado('error', 'Error al iniciar la cámara: ' + err.message);
+              resolve(); // Resolvemos igual para no bloquear la interfaz
+            });
         };
+        
+        camera.addEventListener('loadedmetadata', onLoaded);
+        
+        // Timeout por si la cámara tarda demasiado en cargar
+        setTimeout(() => {
+          camera.removeEventListener('loadedmetadata', onLoaded);
+          resolve(); // Resolvemos para no bloquear la interfaz
+        }, 5000);
       });
     }
   } catch (err) {
-    console.error("Error al acceder a la cámara:", err);
-    mostrarEstado("error", "No se pudo acceder a la cámara");
+    console.error('Error al acceder a la cámara:', err);
+    mostrarEstado('error', 'No se pudo acceder a la cámara: ' + (err.message || 'Error desconocido'));
     return Promise.reject(err);
   }
 }
 
 // Función para detener la cámara
 async function detenerCamara() {
+  console.log('Deteniendo cámara...');
+  
+  // Detener todos los tracks de la cámara
   if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop());
-    cameraStream = null;
+    try {
+      const tracks = cameraStream.getTracks();
+      console.log(`Deteniendo ${tracks.length} pistas de la cámara`);
+      
+      tracks.forEach(track => {
+        try {
+          track.stop();
+          console.log('Pista detenida:', track.kind);
+        } catch (trackError) {
+          console.warn('Error al detener pista de la cámara:', trackError);
+        }
+      });
+      
+      cameraStream = null;
+    } catch (err) {
+      console.error('Error al detener la cámara:', err);
+      return Promise.reject(err);
+    }
   }
+  
+  // Limpiar el elemento de video
   if (camera) {
-    camera.srcObject = null;
+    try {
+      // Pausar el video
+      if (!camera.paused) {
+        camera.pause();
+      }
+      
+      // Limpiar srcObject de manera segura
+      if (camera.srcObject) {
+        camera.srcObject = null;
+      }
+      
+      // Limpiar atributos de fuente
+      if (camera.hasAttribute('src')) {
+        camera.removeAttribute('src');
+      }
+      
+      // Limpiar cualquier buffer de video
+      if (camera.load) {
+        camera.load();
+      }
+      
+      console.log('Elemento de cámara limpiado correctamente');
+    } catch (err) {
+      console.error('Error al limpiar el elemento de cámara:', err);
+      // Continuamos a pesar del error
+    }
   }
+  
+  // Forzar recolección de basura (sugerencia para el motor de JavaScript)
+  if (window.gc) {
+    window.gc();
+  }
+  
+  console.log('Cámara detenida correctamente');
   return Promise.resolve();
 }
 
@@ -307,14 +402,26 @@ async function generarCaptura() {
       fechaCompleta: ahora.toLocaleDateString('es-CL', { ...opcionesFecha, ...opcionesHora })
     };
     
-    // Guardar la captura
+    // Procesar OCR en la imagen capturada
+    try {
+      const ocrResult = await extraerFechaConOCR(canvas);
+      if (ocrResult && ocrResult.fechaHora) {
+        captura.ocrResult = ocrResult;
+        mostrarEstado('info', `OCR: ${ocrResult.fechaHora} (${ocrResult.confianza}% de confianza)`);
+      }
+    } catch (ocrError) {
+      console.error('Error en el procesamiento OCR:', ocrError);
+      captura.ocrError = 'No se pudo procesar el texto en la imagen';
+    }
+    
+    // Guardar la captura con los resultados del OCR
     guardarCaptura(captura);
     cargarHistorial();
     
     // Volver a iniciar la cámara
     await iniciarCamara();
     
-    mostrarEstado('success', '✅ Captura registrada');
+    mostrarEstado('success', '✅ Captura registrada' + (captura.ocrResult ? ` (OCR: ${captura.ocrResult.fechaHora})` : ''));
     
   } catch (error) {
     console.error('Error al generar la captura:', error);
@@ -610,18 +717,47 @@ function cargarHistorial() {
           <p><strong>Fecha y hora:</strong> ${fechaHora}</p>
         `;
         
-        if (captura.coords) {
+        if (captura.coords && captura.coords.latitude && captura.coords.longitude) {
           const { latitude, longitude, accuracy } = captura.coords;
+          const lat = typeof latitude === 'number' ? latitude.toFixed(6) : 'N/A';
+          const lng = typeof longitude === 'number' ? longitude.toFixed(6) : 'N/A';
+          const acc = typeof accuracy === 'number' ? Math.round(accuracy) : 'N/A';
+          
           infoHTML += `
             <p><strong>Ubicación:</strong> 
-              ${latitude.toFixed(6)}, ${longitude.toFixed(6)}
-              <small> (precisión: ${Math.round(accuracy)}m)</small>
+              ${lat}, ${lng}
+              ${acc !== 'N/A' ? `<small> (precisión: ${acc}m)</small>` : ''}
             </p>
           `;
         }
         
         if (captura.horaOficial) {
           infoHTML += `<p><strong>Hora oficial:</strong> ${captura.horaOficial}</p>`;
+        }
+        
+        // Mostrar la imagen en el visor con información adicional del OCR si está disponible
+        if (captura.ocrResult) {
+          infoHTML += `
+            <div class="ocr-result">
+              <h3>Resultado OCR</h3>
+              <p><strong>Fecha/Hora detectada:</strong> ${captura.ocrResult.fechaHora}</p>
+              <p><strong>Confianza:</strong> ${captura.ocrResult.confianza}%</p>
+              ${captura.ocrResult.textoCompleto ? `<p><strong>Texto detectado:</strong><br>${captura.ocrResult.textoCompleto}</p>` : ''}
+            </div>
+          `;
+        } else if (captura.ocrError) {
+          infoHTML += `
+            <div class="ocr-error">
+              <h3>Error en OCR</h3>
+              <p>${captura.ocrError}</p>
+            </div>
+          `;
+        } else {
+          infoHTML += `
+            <div class="ocr-info">
+              <p>No se procesó OCR para esta imagen.</p>
+            </div>
+          `;
         }
         
         // Mostrar la imagen en el visor
@@ -702,7 +838,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function mostrarSeccion(id) {
+async function mostrarSeccion(id) {
+  console.log(`Cambiando a sección: ${id}`);
+  
   // Validar ID de sección
   const validSections = ['captura', 'historial'];
   if (!validSections.includes(id)) {
@@ -715,10 +853,14 @@ function mostrarSeccion(id) {
   const seccionNueva = document.getElementById(id);
   
   // Si ya está en la sección solicitada, no hacer nada
-  if (seccionActual === seccionNueva) return;
+  if (seccionActual === seccionNueva) {
+    console.log('Ya está en la sección solicitada');
+    return;
+  }
   
   // Configurar la transición
   if (seccionActual) {
+    console.log(`Ocultando sección actual: ${seccionActual.id}`);
     seccionActual.style.opacity = '0';
     seccionActual.classList.remove('visible');
     seccionActual.setAttribute('aria-hidden', 'true');
@@ -727,20 +869,33 @@ function mostrarSeccion(id) {
     setTimeout(() => {
       seccionActual.style.display = 'none';
       seccionActual.style.visibility = 'hidden';
+      console.log(`Sección ${seccionActual.id} oculta`);
     }, 300); // Coincidir con la duración de la transición CSS
   }
   
   // Mostrar la nueva sección
   if (seccionNueva) {
+    console.log(`Mostrando sección: ${id}`);
+    
     // Manejar la cámara según la sección a la que se está cambiando
-    if (id === 'captura') {
-      // Iniciar la cámara cuando volvemos a la vista de captura
-      iniciarCamara().catch(console.error);
-    } else if (id === 'historial') {
-      // Detener la cámara cuando vamos al historial para ahorrar recursos
-      detenerCamara().catch(console.error);
+    try {
+      if (id === 'captura') {
+        console.log('Iniciando cámara para la vista de captura...');
+        await detenerCamara(); // Asegurarse de que la cámara esté detenida antes de iniciar
+        await new Promise(resolve => setTimeout(resolve, 100)); // Pequeña pausa
+        await iniciarCamara();
+        console.log('Cámara iniciada correctamente');
+      } else if (id === 'historial') {
+        console.log('Deteniendo cámara para la vista de historial...');
+        await detenerCamara();
+        console.log('Cámara detenida correctamente');
+      }
+    } catch (error) {
+      console.error('Error al manejar la cámara:', error);
+      // Continuar a pesar del error para no bloquear la interfaz
     }
     
+    // Mostrar la nueva sección
     seccionNueva.style.display = 'block';
     seccionNueva.style.visibility = 'visible';
     seccionNueva.setAttribute('aria-hidden', 'false');
@@ -752,11 +907,13 @@ function mostrarSeccion(id) {
     setTimeout(() => {
       seccionNueva.style.opacity = '1';
       seccionNueva.classList.add('visible');
+      console.log(`Sección ${id} completamente visible`);
       
       // Enfocar el primer elemento interactivo
       const focusable = seccionNueva.querySelector('button, [href], [tabindex]:not([tabindex="-1"])');
       if (focusable) {
         focusable.focus({ preventScroll: true });
+        console.log('Elemento enfocado:', focusable);
       }
     }, 10);
   }
@@ -941,6 +1098,10 @@ function downloadImage() {
 
 // Función para extraer fecha y hora usando OCR
 async function extraerFechaConOCR(imagenElement) {
+  console.log('Iniciando procesamiento OCR...');
+  
+  // Mostrar estado de carga
+  mostrarEstado('info', 'Procesando texto en la imagen...');
     try {
         // Mostrar mensaje de carga
         mostrarEstado('info', 'Procesando imagen para extraer fecha/hora...');
