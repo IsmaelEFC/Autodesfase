@@ -331,71 +331,208 @@ async function generarCaptura() {
 
 // Guardado local (usando localStorage)
 function guardarCaptura(data) {
-  const prev = JSON.parse(localStorage.getItem("capturas") || "[]");
-  prev.push(data);
-  localStorage.setItem("capturas", JSON.stringify(prev));
+  try {
+    // Validar los datos de entrada
+    if (!data || typeof data !== 'object') {
+      throw new Error('Datos de captura no válidos');
+    }
+    
+    // Verificar que la fuente de la imagen sea válida
+    if (!data.src || !data.src.startsWith('data:image')) {
+      console.error('Fuente de imagen no válida en los datos de captura:', 
+        data.src ? data.src.substring(0, 100) + '...' : 'undefined');
+      throw new Error('La imagen capturada no es válida');
+    }
+    
+    // Obtener capturas existentes
+    let capturas = [];
+    try {
+      const capturasGuardadas = localStorage.getItem("capturas");
+      if (capturasGuardadas) {
+        capturas = JSON.parse(capturasGuardadas);
+        if (!Array.isArray(capturas)) {
+          console.warn('Las capturas guardadas no son un array, inicializando nuevo array');
+          capturas = [];
+        }
+      }
+    } catch (e) {
+      console.error('Error al cargar capturas existentes:', e);
+      capturas = [];
+    }
+    
+    console.log('Guardando captura. Total previo:', capturas.length);
+    console.log('Datos de la captura:', {
+      timestamp: data.timestamp,
+      srcLength: data.src ? data.src.length : 'no src',
+      srcStart: data.src ? data.src.substring(0, 30) + '...' : 'no src',
+      coords: data.coords ? 'con coordenadas' : 'sin coordenadas'
+    });
+    
+    // Agregar la nueva captura
+    capturas.push(data);
+    
+    // Guardar en localStorage
+    try {
+      localStorage.setItem("capturas", JSON.stringify(capturas));
+      console.log('Captura guardada correctamente. Total actual:', capturas.length);
+      
+      // Verificar que se guardó correctamente
+      const verificar = JSON.parse(localStorage.getItem("capturas") || "[]");
+      console.log('Verificación de guardado:', {
+        totalGuardado: verificar.length,
+        ultimaCaptura: verificar.length > 0 ? {
+          timestamp: verificar[verificar.length - 1].timestamp,
+          srcLength: verificar[verificar.length - 1].src.length
+        } : 'sin capturas'
+      });
+      
+    } catch (e) {
+      console.error('Error al guardar en localStorage:', e);
+      if (e.name === 'QuotaExceededError') {
+        throw new Error('No hay suficiente espacio en el almacenamiento local. Por favor, elimina algunas capturas antiguas.');
+      }
+      throw e;
+    }
+  } catch (error) {
+    console.error('Error al guardar la captura:', error);
+    mostrarEstado('error', 'Error al guardar la captura: ' + error.message);
+    throw error;
+  }
 }
 
 // Obtener historial de capturas
 function obtenerHistorial() {
   try {
-    return JSON.parse(localStorage.getItem("capturas") || "[]");
+    const capturasGuardadas = localStorage.getItem("capturas");
+    
+    if (!capturasGuardadas) {
+      console.log('No se encontraron capturas guardadas en localStorage');
+      return [];
+    }
+    
+    // Verificar si el string es un JSON válido
+    let capturas;
+    try {
+      capturas = JSON.parse(capturasGuardadas);
+    } catch (e) {
+      console.error('Error al analizar las capturas guardadas:', e);
+      console.error('Contenido no válido:', capturasGuardadas.substring(0, 200) + '...');
+      return [];
+    }
+    
+    if (!Array.isArray(capturas)) {
+      console.error('Las capturas guardadas no son un array:', typeof capturas);
+      return [];
+    }
+    
+    // Filtrar solo elementos válidos
+    const capturasValidas = capturas.filter((captura, index) => {
+      const esValida = captura && 
+                      typeof captura === 'object' && 
+                      'src' in captura && 
+                      captura.src && 
+                      captura.src.startsWith('data:image');
+      
+      if (!esValida) {
+        console.warn(`Captura inválida en el índice ${index}:`, captura);
+      }
+      
+      return esValida;
+    });
+    
+    if (capturasValidas.length !== capturas.length) {
+      console.warn(`Se filtraron ${capturas.length - capturasValidas.length} capturas inválidas`);
+    }
+    
+    console.log(`Se cargaron ${capturasValidas.length} capturas válidas`);
+    return capturasValidas;
+    
   } catch (error) {
-    console.error("Error al obtener el historial:", error);
+    console.error("Error inesperado al obtener el historial:", error);
     return [];
   }
 }
 
 // Cargar y mostrar el historial en la galería
 function cargarHistorial() {
-  const historial = obtenerHistorial();
-  const grid = document.getElementById("history-grid");
-  
-  if (!grid) return;
-  
-  if (!historial || historial.length === 0) {
-    grid.innerHTML = '<p class="no-data">No hay capturas guardadas</p>';
-    return;
+  try {
+    console.log('Cargando historial...');
+    const historial = obtenerHistorial();
+    const grid = document.getElementById("history-grid");
+    
+    if (!grid) {
+      console.error('No se encontró el elemento con ID "history-grid"');
+      return;
+    }
+    
+    console.log('Total de capturas en el historial:', historial.length);
+    
+    if (!historial || historial.length === 0) {
+      console.log('No hay capturas para mostrar');
+      grid.innerHTML = '<p class="no-data">No hay capturas guardadas</p>';
+      return;
+    }
+    
+    grid.innerHTML = '';
+    
+    // Mostrar en orden cronológico inverso (más recientes primero)
+    historial.reverse().forEach((captura, index) => {
+      console.log(`Procesando captura ${index + 1}/${historial.length}:`, {
+        timestamp: new Date(captura.timestamp).toISOString(),
+        srcLength: captura.src ? captura.src.length : 'no src',
+        srcStart: captura.src ? captura.src.substring(0, 30) + '...' : 'no src'
+      });
+      
+      // Crear contenedor para la imagen y el botón
+      const itemContainer = document.createElement('div');
+      itemContainer.className = 'gallery-item';
+      itemContainer.dataset.timestamp = captura.timestamp;
+      
+      // Crear imagen
+      const img = document.createElement('img');
+      
+      // Verificar que la fuente de la imagen sea válida
+      if (captura.src && captura.src.startsWith('data:image')) {
+        img.src = captura.src;
+        console.log('Imagen cargada correctamente');
+      } else {
+        console.error('Fuente de imagen no válida:', captura.src ? captura.src.substring(0, 100) + '...' : 'undefined');
+        img.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="%23f0f0f0"/><text x="100" y="100" font-family="Arial" font-size="14" text-anchor="middle" dominant-baseline="middle" fill="%23999">Imagen no disponible</text></svg>';
+      }
+      
+      img.alt = `Captura del ${new Date(captura.timestamp).toLocaleString("es-CL")}`;
+      img.loading = 'lazy';
+      img.className = 'gallery-image';
+      img.tabIndex = 0;
+      
+      // Crear botón de eliminar
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.innerHTML = '🗑️';
+      deleteBtn.title = 'Eliminar esta captura';
+      deleteBtn.setAttribute('aria-label', `Eliminar captura del ${new Date(captura.timestamp).toLocaleString("es-CL")}`);
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        eliminarCaptura(captura.timestamp);
+      };
+      
+      // Agregar elementos al contenedor
+      itemContainer.appendChild(img);
+      itemContainer.appendChild(deleteBtn);
+      
+      // Agregar el contenedor al grid
+      grid.appendChild(itemContainer);
+      
+      // Configurar el manejador de clic para la imagen
+      setupGalleryImageClickHandler(img, captura);
+    });
+  } catch (error) {
+    console.error('Error al cargar el historial:', error);
+    const grid = document.getElementById("history-grid");
+    if (grid) {
+      grid.innerHTML = '<p class="error">Error al cargar el historial. Por favor, recarga la página.</p>';
+    }
   }
-  
-  grid.innerHTML = '';
-  
-  // Mostrar en orden cronológico inverso (más recientes primero)
-  historial.reverse().forEach((captura) => {
-    // Crear contenedor para la imagen y el botón
-    const itemContainer = document.createElement('div');
-    itemContainer.className = 'gallery-item';
-    itemContainer.dataset.timestamp = captura.timestamp;
-    
-    // Crear imagen
-    const img = document.createElement('img');
-    img.src = captura.src;
-    img.alt = `Captura del ${new Date(captura.timestamp).toLocaleString("es-CL")}`;
-    img.loading = 'lazy';
-    img.className = 'gallery-image';
-    img.tabIndex = 0;
-    
-    // Crear botón de eliminar
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'delete-btn';
-    deleteBtn.innerHTML = '🗑️';
-    deleteBtn.title = 'Eliminar esta captura';
-    deleteBtn.setAttribute('aria-label', `Eliminar captura del ${new Date(captura.timestamp).toLocaleString("es-CL")}`);
-    deleteBtn.onclick = (e) => {
-      e.stopPropagation();
-      eliminarCaptura(captura.timestamp);
-    };
-    
-    // Agregar elementos al contenedor
-    itemContainer.appendChild(img);
-    itemContainer.appendChild(deleteBtn);
-    
-    // Agregar el contenedor al grid
-    grid.appendChild(itemContainer);
-    
-    // Configurar el manejador de clic para la imagen
-    setupGalleryImageClickHandler(img, captura);
-  });
 }
 
 // Función para eliminar una captura
