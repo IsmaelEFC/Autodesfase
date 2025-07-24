@@ -196,8 +196,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Inicializar manejadores de eventos para la selección
 function initSelectionHandlers() {
-  // Activar/desactivar modo de selección
-  toggleSelectionBtn.addEventListener('click', toggleSelectionMode);
+  // Obtener referencia al botón de selección
+  const toggleSelectionBtn = document.getElementById('toggle-selection-btn');
+  
+  // Verificar que el botón existe antes de agregar el event listener
+  if (toggleSelectionBtn) {
+    toggleSelectionBtn.addEventListener('click', toggleSelectionMode);
+  } else {
+    console.warn('No se encontró el botón de selección');
+  }
+  
+  // Verificar que el overlay de selección existe
+  if (!selectionOverlay) {
+    console.error('No se encontró el elemento de selección');
+    return;
+  }
   
   // Manejadores para el rectángulo de selección
   selectionOverlay.addEventListener('mousedown', startSelection);
@@ -345,27 +358,66 @@ document.getElementById('capture-btn').addEventListener('click', () => {
   });
 });
 
+// Función para verificar si el video está listo
+function videoListo(video) {
+  return video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0;
+}
+
 async function generarCaptura() {
   try {
     if (!camera || !camera.srcObject) {
       throw new Error('La cámara no está disponible');
     }
 
+    // Esperar a que el video esté listo
+    if (!videoListo(camera)) {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          camera.removeEventListener('canplay', onCanPlay);
+          reject(new Error('Tiempo de espera agotado para la cámara'));
+        }, 5000);
+
+        const onCanPlay = () => {
+          clearTimeout(timeout);
+          camera.removeEventListener('canplay', onCanPlay);
+          resolve();
+        };
+
+        camera.addEventListener('canplay', onCanPlay);
+      });
+    }
+
     // Configurar el canvas con las dimensiones del video
-    canvas.width = camera.videoWidth;
-    canvas.height = camera.videoHeight;
+    canvas.width = camera.videoWidth || 640; // Usar valores por defecto si es necesario
+    canvas.height = camera.videoHeight || 480;
+    
+    // Asegurarse de que las dimensiones sean válidas
+    if (canvas.width === 0 || canvas.height === 0) {
+      canvas.width = 640;
+      canvas.height = 480;
+    }
     
     // Dibujar el frame actual en el canvas
-    ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
-    
-    // Pequeña pausa para asegurar que el frame se dibuje
-    await new Promise(resolve => setTimeout(resolve, 100));
+    try {
+      ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+      
+      // Verificar que la imagen se dibujó correctamente
+      const imageData = ctx.getImageData(0, 0, 1, 1).data;
+      if (imageData[3] === 0) { // Si el píxel es completamente transparente
+        throw new Error('No se pudo capturar la imagen de la cámara');
+      }
+    } catch (error) {
+      console.error('Error al dibujar la imagen:', error);
+      throw new Error('No se pudo capturar la imagen de la cámara');
+    }
     
     // Detener la cámara después de capturar el frame
     const stream = camera.srcObject;
-    const tracks = stream.getTracks();
-    tracks.forEach(track => track.stop());
-    camera.srcObject = null;
+    if (stream) {
+      const tracks = stream.getTracks();
+      tracks.forEach(track => track.stop());
+      camera.srcObject = null;
+    }
     
     // Calcular las dimensiones del área de selección
     const videoRect = camera.getBoundingClientRect();
