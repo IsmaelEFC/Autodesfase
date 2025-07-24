@@ -72,19 +72,42 @@
     background: black;
   }
   
-  #capture-btn {
+  #capture-btn, #toggle-selection-btn {
     position: absolute;
     bottom: 15px;
-    left: 50%;
-    transform: translateX(-50%);
     padding: 12px 20px;
     font-size: 17px;
     border: none;
     border-radius: 6px;
     z-index: 20;
-    background-color: #0078d4;
     color: white;
     box-shadow: 0 0 6px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  #capture-btn {
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #0078d4;
+  }
+  
+  #toggle-selection-btn {
+    left: 20px;
+    background-color: #4CAF50;
+  }
+  
+  #toggle-selection-btn.active {
+    background-color: #f44336;
+  }
+  
+  #toggle-selection-btn:active {
+    transform: scale(0.98);
+  }
+  
+  #toggle-selection-btn:focus {
+    outline: 2px solid #4CAF50;
+    outline-offset: 2px;
   }
   
   #canvas-preview {

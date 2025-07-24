@@ -9,6 +9,9 @@ let selectionRect = document.getElementById('selection-rectangle');
 let selectionOverlay = document.getElementById('selection-overlay');
 let cameraContainer = document.getElementById('camera-container');
 
+// Inicializar variables globales
+let isSelecting = false; // Estado del modo selección
+
 // Tamaño fijo del área de selección (relativo al video)
 const SELECTION_WIDTH_RATIO = 0.8; // 80% del ancho del contenedor
 const SELECTION_ASPECT_RATIO = 16/9; // Relación de aspecto del área de selección
@@ -21,6 +24,19 @@ let cameraStream = null;
 // Función para verificar si estamos en un dispositivo móvil
 function esDispositivoMovil() {
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// Función para verificar si estamos en un dispositivo móvil
+function esDispositivoMovil() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// Función para verificar si el video está listo
+function videoListo(video) {
+  return video && 
+         video.readyState >= video.HAVE_CURRENT_DATA && 
+         video.videoWidth > 0 && 
+         video.videoHeight > 0;
 }
 
 // Función para iniciar la cámara
@@ -43,9 +59,11 @@ async function iniciarCamara() {
     }
     
     // Verificar si estamos en HTTPS o localhost (requerido para la cámara en móviles)
-    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      console.warn('La cámara requiere HTTPS en dispositivos móviles');
-      mostrarEstado('advertencia', 'Para usar la cámara en móviles, la aplicación debe cargarse a través de HTTPS o localhost');
+    if (esDispositivoMovil() && window.location.protocol !== 'https:' && 
+        window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      const mensaje = 'Para usar la cámara en móviles, la aplicación debe cargarse a través de HTTPS o localhost';
+      console.warn(mensaje);
+      mostrarEstado('advertencia', mensaje);
     }
     
     // Configuración de la cámara con valores más compatibles
@@ -54,16 +72,23 @@ async function iniciarCamara() {
         width: { ideal: 1280 },
         height: { ideal: 720 },
         facingMode: { ideal: 'environment' },
-        frameRate: { ideal: 24, max: 30 },
-        // Añadir configuración para iOS
-        advanced: [
-          { facingMode: 'environment' },
-          { width: 1280, height: 720 },
-          { aspectRatio: 16/9 }
-        ]
+        frameRate: { ideal: 24, max: 30 }
       },
       audio: false
     };
+    
+    // Configuración adicional para iOS
+    if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+      constraints.video = {
+        ...constraints.video,
+        mandatory: {
+          ...constraints.video.mandatory,
+          minWidth: 640,
+          minHeight: 480,
+          minFrameRate: 24
+        }
+      };
+    }
     
     // Intentar con la configuración ideal primero
     try {
@@ -194,6 +219,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 500); // Pequeño retraso para asegurar que todo esté listo
 });
 
+// Función para activar/desactivar el modo de selección
+function toggleSelectionMode() {
+  isSelecting = !isSelecting;
+  const selectionBtn = document.getElementById('toggle-selection-btn');
+  
+  if (selectionBtn) {
+    selectionBtn.setAttribute('aria-pressed', isSelecting);
+    selectionBtn.classList.toggle('active', isSelecting);
+  }
+  
+  // Mostrar/ocultar el área de selección
+  if (selectionOverlay) {
+    selectionOverlay.style.display = isSelecting ? 'block' : 'none';
+  }
+  
+  mostrarEstado('info', `Modo selección ${isSelecting ? 'activado' : 'desactivado'}`);
+}
+
 // Inicializar manejadores de eventos para la selección
 function initSelectionHandlers() {
   // Obtener referencia al botón de selección
@@ -202,6 +245,8 @@ function initSelectionHandlers() {
   // Verificar que el botón existe antes de agregar el event listener
   if (toggleSelectionBtn) {
     toggleSelectionBtn.addEventListener('click', toggleSelectionMode);
+    // Inicializar estado del botón
+    toggleSelectionBtn.setAttribute('aria-pressed', 'false');
   } else {
     console.warn('No se encontró el botón de selección');
   }
@@ -363,52 +408,95 @@ function videoListo(video) {
   return video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0;
 }
 
+// Función para verificar si el video está listo
+function videoListo(video) {
+  return video && 
+         video.readyState >= video.HAVE_CURRENT_DATA && 
+         video.videoWidth > 0 && 
+         video.videoHeight > 0;
+}
+
 async function generarCaptura() {
   try {
+    // Verificar que la cámara esté disponible
     if (!camera || !camera.srcObject) {
       throw new Error('La cámara no está disponible');
     }
 
     // Esperar a que el video esté listo
+    console.log('Verificando estado del video...');
     if (!videoListo(camera)) {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          camera.removeEventListener('canplay', onCanPlay);
-          reject(new Error('Tiempo de espera agotado para la cámara'));
-        }, 5000);
-
-        const onCanPlay = () => {
-          clearTimeout(timeout);
-          camera.removeEventListener('canplay', onCanPlay);
-          resolve();
-        };
-
-        camera.addEventListener('canplay', onCanPlay);
-      });
-    }
-
-    // Configurar el canvas con las dimensiones del video
-    canvas.width = camera.videoWidth || 640; // Usar valores por defecto si es necesario
-    canvas.height = camera.videoHeight || 480;
-    
-    // Asegurarse de que las dimensiones sean válidas
-    if (canvas.width === 0 || canvas.height === 0) {
-      canvas.width = 640;
-      canvas.height = 480;
-    }
-    
-    // Dibujar el frame actual en el canvas
-    try {
-      ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+      console.log('Esperando a que el video esté listo...');
+      await new Promise((resolve) => setTimeout(resolve, 500));
       
-      // Verificar que la imagen se dibujó correctamente
-      const imageData = ctx.getImageData(0, 0, 1, 1).data;
-      if (imageData[3] === 0) { // Si el píxel es completamente transparente
-        throw new Error('No se pudo capturar la imagen de la cámara');
+      if (!videoListo(camera)) {
+        // Intentar forzar una actualización de las dimensiones
+        if (camera.videoWidth === 0 || camera.videoHeight === 0) {
+          camera.videoWidth = camera.offsetWidth;
+          camera.videoHeight = camera.offsetHeight;
+          console.warn('Usando dimensiones del contenedor como respaldo');
+        }
+        
+        if (!videoListo(camera)) {
+          throw new Error('El video de la cámara no está listo después de esperar');
+        }
       }
-    } catch (error) {
-      console.error('Error al dibujar la imagen:', error);
-      throw new Error('No se pudo capturar la imagen de la cámara');
+    }
+
+    // Obtener dimensiones del video con múltiples fuentes de respaldo
+    let videoWidth = camera.videoWidth || camera.offsetWidth || 640;
+    let videoHeight = camera.videoHeight || camera.offsetHeight || 480;
+    
+    // Asegurar dimensiones mínimas
+    videoWidth = Math.max(videoWidth, 100);
+    videoHeight = Math.max(videoHeight, 100);
+    
+    console.log(`Dimensiones del video: ${videoWidth}x${videoHeight}`);
+    
+    // Crear un nuevo canvas temporal
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = videoWidth;
+    tempCanvas.height = videoHeight;
+    
+    // Obtener el contexto 2D con willReadFrequently para mejor rendimiento
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    if (!tempCtx) {
+      throw new Error('No se pudo obtener el contexto 2D temporal');
+    }
+    
+    // Configurar el canvas principal
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    
+    // Dibujar el frame actual en el canvas temporal
+    try {
+      console.log('Dibujando frame en canvas temporal...');
+      
+      // Limpiar el canvas temporal
+      tempCtx.fillStyle = 'black';
+      tempCtx.fillRect(0, 0, videoWidth, videoHeight);
+      
+      // Dibujar la imagen de la cámara
+      tempCtx.drawImage(camera, 0, 0, videoWidth, videoHeight);
+      
+      // Verificar que el contenido se dibujó correctamente
+      try {
+        const imageData = tempCtx.getImageData(0, 0, 1, 1).data;
+        console.log('Datos de píxel de muestra:', imageData);
+      } catch (checkError) {
+        console.warn('No se pudo verificar la imagen capturada:', checkError);
+      }
+      
+      // Dibujar la imagen del canvas temporal al canvas principal
+      ctx.drawImage(tempCanvas, 0, 0, videoWidth, videoHeight);
+      
+      // Verificar que el canvas principal tenga contenido
+      const mainImageData = ctx.getImageData(0, 0, 1, 1).data;
+      console.log('Datos de píxel en canvas principal:', mainImageData);
+      
+    } catch (drawError) {
+      console.error('Error al dibujar la imagen:', drawError);
+      throw new Error('No se pudo capturar la imagen de la cámara: ' + drawError.message);
     }
     
     // Detener la cámara después de capturar el frame
