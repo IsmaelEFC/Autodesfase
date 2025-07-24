@@ -18,6 +18,11 @@ let coordenadas = null;
 // Inicializar cámara
 let cameraStream = null;
 
+// Función para verificar si estamos en un dispositivo móvil
+function esDispositivoMovil() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
 // Función para iniciar la cámara
 async function iniciarCamara() {
   console.log('Iniciando cámara...');
@@ -37,13 +42,25 @@ async function iniciarCamara() {
       throw new Error('Tu navegador no soporta el acceso a la cámara');
     }
     
-    // Configuración de la cámara
+    // Verificar si estamos en HTTPS o localhost (requerido para la cámara en móviles)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      console.warn('La cámara requiere HTTPS en dispositivos móviles');
+      mostrarEstado('advertencia', 'Para usar la cámara en móviles, la aplicación debe cargarse a través de HTTPS o localhost');
+    }
+    
+    // Configuración de la cámara con valores más compatibles
     const constraints = {
       video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
         facingMode: { ideal: 'environment' },
-        frameRate: { ideal: 30, max: 60 }
+        frameRate: { ideal: 24, max: 30 },
+        // Añadir configuración para iOS
+        advanced: [
+          { facingMode: 'environment' },
+          { width: 1280, height: 720 },
+          { aspectRatio: 16/9 }
+        ]
       },
       audio: false
     };
@@ -162,7 +179,20 @@ async function detenerCamara() {
 }
 
 // Iniciar cámara al cargar la página
-iniciarCamara().then(initSelectionHandlers).catch(console.error);
+document.addEventListener('DOMContentLoaded', () => {
+  // Esperar a que todo el DOM esté listo
+  setTimeout(() => {
+    iniciarCamara()
+      .then(() => {
+        console.log('Cámara iniciada correctamente');
+        initSelectionHandlers();
+      })
+      .catch(error => {
+        console.error('Error al iniciar la cámara:', error);
+        mostrarEstado('error', 'Error al iniciar la cámara: ' + error.message);
+      });
+  }, 500); // Pequeño retraso para asegurar que todo esté listo
+});
 
 // Inicializar manejadores de eventos para la selección
 function initSelectionHandlers() {
@@ -317,10 +347,9 @@ document.getElementById('capture-btn').addEventListener('click', () => {
 
 async function generarCaptura() {
   try {
-    // Detener la cámara temporalmente
-    const stream = camera.srcObject;
-    const tracks = stream.getTracks();
-    tracks.forEach(track => track.stop());
+    if (!camera || !camera.srcObject) {
+      throw new Error('La cámara no está disponible');
+    }
 
     // Configurar el canvas con las dimensiones del video
     canvas.width = camera.videoWidth;
@@ -328,6 +357,15 @@ async function generarCaptura() {
     
     // Dibujar el frame actual en el canvas
     ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+    
+    // Pequeña pausa para asegurar que el frame se dibuje
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Detener la cámara después de capturar el frame
+    const stream = camera.srcObject;
+    const tracks = stream.getTracks();
+    tracks.forEach(track => track.stop());
+    camera.srcObject = null;
     
     // Calcular las dimensiones del área de selección
     const videoRect = camera.getBoundingClientRect();
