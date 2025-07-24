@@ -7,7 +7,7 @@ function abrirDB() {
 
   request.onupgradeneeded = event => {
     db = event.target.result;
-    db.createObjectStore(STORE_NAME, { keyPath: "id" });
+    db.createObjectStore(STORE_NAME, { keyPath: "timestamp" });
   };
 
   request.onsuccess = () => {
@@ -28,5 +28,18 @@ function cargarCapturas(callback) {
 
   request.onsuccess = () => {
     callback(request.result);
+  };
+}
+
+function eliminarCapturaDB(timestamp, callback) {
+  const tx = db.transaction(STORE_NAME, "readwrite");
+  const store = tx.objectStore(STORE_NAME);
+  const request = store.delete(timestamp);
+
+  request.onsuccess = () => {
+    callback(null); // Éxito
+  };
+  request.onerror = (event) => {
+    callback(event.target.error); // Error
   };
 }
