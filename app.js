@@ -174,11 +174,11 @@ function cargarHistorial() {
     itemContainer.appendChild(img);
     itemContainer.appendChild(deleteBtn);
     
-    // Configurar el manejador de clic para la imagen
-    setupGalleryImageClickHandler(itemContainer, captura);
-    
     // Agregar el contenedor al grid
     grid.appendChild(itemContainer);
+    
+    // Configurar el manejador de clic para la imagen
+    setupGalleryImageClickHandler(img, captura);
   });
 }
 
@@ -655,8 +655,9 @@ function openModal() {
   document.body.style.overflow = "hidden";
   
   // Configurar el botón de descarga
-  if (downloadButton) {
-    downloadButton.onclick = downloadImage;
+  const descargarBtn = document.getElementById('descargar-img');
+  if (descargarBtn) {
+    descargarBtn.onclick = downloadImage;
   }
   
   // Enfocar el primer elemento interactivo
