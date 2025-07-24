@@ -1,4 +1,4 @@
-# TimeCam
+# Autodesfase
 
 **TimeCam** es una aplicación web progresiva (PWA) diseñada para capturar evidencia fotográfica con metadatos de tiempo y ubicación. La aplicación registra automáticamente la hora oficial de Chile y las coordenadas GPS en cada captura, creando un registro confiable para documentación técnica y legal.
 
