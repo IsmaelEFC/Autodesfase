@@ -591,42 +591,8 @@ function cargarHistorial() {
       // Agregar el contenedor al grid
       grid.appendChild(itemContainer);
       
-      // Configurar el manejador de clic para la imagen
-      img.onclick = (e) => {
-        e.stopPropagation();
-        console.log('Mostrando imagen en visor:', captura.timestamp);
-        
-        // Crear información detallada para mostrar en el visor
-        const fechaHora = new Date(captura.timestamp).toLocaleString('es-CL', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        });
-        
-        let infoHTML = `
-          <p><strong>Fecha y hora:</strong> ${fechaHora}</p>
-        `;
-        
-        if (captura.coords) {
-          const { latitude, longitude, accuracy } = captura.coords;
-          infoHTML += `
-            <p><strong>Ubicación:</strong> 
-              ${latitude.toFixed(6)}, ${longitude.toFixed(6)}
-              <small> (precisión: ${Math.round(accuracy)}m)</small>
-            </p>
-          `;
-        }
-        
-        if (captura.horaOficial) {
-          infoHTML += `<p><strong>Hora oficial:</strong> ${captura.horaOficial}</p>`;
-        }
-        
-        // Mostrar la imagen en el visor
-        mostrarImagenEnVisor(captura.src, infoHTML);
-      };
+      // Configurar el manejador de clic para la imagen usando la función refactorizada
+      setupGalleryImageClickHandler(img, captura);
     });
   } catch (error) {
     console.error('Error al cargar el historial:', error);
