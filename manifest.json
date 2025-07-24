@@ -1,6 +1,6 @@
 {
-  "name": "TimeCam",
-  "short_name": "TimeCam",
+  "name": "Autodesfase",
+  "short_name": "Autodesfase",
   "description": "Captura hora oficial y ubicación geográfica en tiempo real.",
   "start_url": "./index.html",
   "display": "standalone",

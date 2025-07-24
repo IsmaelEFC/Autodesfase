@@ -5,12 +5,13 @@ const gallery = document.getElementById('history-grid');
 const toast = document.getElementById('status-toast');
 
 // Variables para el rectángulo de selección
-let isSelecting = false;
-let startX, startY;
 let selectionRect = document.getElementById('selection-rectangle');
 let selectionOverlay = document.getElementById('selection-overlay');
-let toggleSelectionBtn = document.getElementById('toggle-selection-btn');
 let cameraContainer = document.getElementById('camera-container');
+
+// Tamaño fijo del área de selección (relativo al video)
+const SELECTION_WIDTH_RATIO = 0.8; // 80% del ancho del contenedor
+const SELECTION_ASPECT_RATIO = 16/9; // Relación de aspecto del área de selección
 
 let coordenadas = null;
 
@@ -233,43 +234,49 @@ async function generarCaptura() {
     // Dibujar el frame actual en el canvas
     ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
     
-    // Si hay un área seleccionada, recortar la imagen
-    if (selectionRect.classList.contains('visible')) {
-      const rect = selectionRect.getBoundingClientRect();
-      const videoRect = camera.getBoundingClientRect();
-      
-      // Calcular la relación entre el tamaño del video y el tamaño mostrado
-      const scaleX = camera.videoWidth / videoRect.width;
-      const scaleY = camera.videoHeight / videoRect.height;
-      
-      // Calcular las coordenadas y dimensiones del recorte
-      const x = (rect.left - videoRect.left) * scaleX;
-      const y = (rect.top - videoRect.top) * scaleY;
-      const width = rect.width * scaleX;
-      const height = rect.height * scaleY;
-      
-      // Crear un nuevo canvas para la imagen recortada
-      const croppedCanvas = document.createElement('canvas');
-      const croppedCtx = croppedCanvas.getContext('2d');
-      
-      // Establecer el tamaño del canvas recortado
-      croppedCanvas.width = width;
-      croppedCanvas.height = height;
-      
-      // Dibujar solo la región seleccionada
-      croppedCtx.drawImage(
-        canvas,
-        x, y, width, height,  // Coordenadas de origen (recorte)
-        0, 0, width, height  // Coordenadas de destino (tamaño completo)
-      );
-      
-      // Reemplazar el canvas original con el recortado
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(croppedCanvas, 0, 0);
-      
-      mostrarEstado('info', 'Imagen recortada del área seleccionada');
-    }
+    // Calcular las dimensiones del área de selección
+    const videoRect = camera.getBoundingClientRect();
+    const containerRect = cameraContainer.getBoundingClientRect();
+    
+    // Calcular la relación entre el tamaño del video y el tamaño mostrado
+    const scaleX = camera.videoWidth / videoRect.width;
+    const scaleY = camera.videoHeight / videoRect.height;
+    
+    // Calcular las dimensiones del rectángulo de selección
+    const selectionWidth = containerRect.width * SELECTION_WIDTH_RATIO;
+    const selectionHeight = selectionWidth / SELECTION_ASPECT_RATIO;
+    
+    // Calcular la posición del rectángulo (centrado)
+    const offsetX = (containerRect.width - selectionWidth) / 2;
+    const offsetY = (containerRect.height - selectionHeight) / 2;
+    
+    // Calcular las coordenadas y dimensiones del recorte
+    const x = (offsetX + containerRect.left - videoRect.left) * scaleX;
+    const y = (offsetY + containerRect.top - videoRect.top) * scaleY;
+    const width = selectionWidth * scaleX;
+    const height = selectionHeight * scaleY;
+    
+    // Crear un nuevo canvas para la imagen recortada
+    const croppedCanvas = document.createElement('canvas');
+    const croppedCtx = croppedCanvas.getContext('2d');
+    
+    // Establecer el tamaño del canvas recortado
+    croppedCanvas.width = width;
+    croppedCanvas.height = height;
+    
+    // Dibujar solo la región seleccionada
+    croppedCtx.drawImage(
+      canvas,
+      x, y, width, height,  // Coordenadas de origen (recorte)
+      0, 0, width, height  // Coordenadas de destino (tamaño completo)
+    );
+    
+    // Reemplazar el canvas original con el recortado
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(croppedCanvas, 0, 0);
+    
+    mostrarEstado('info', 'Imagen recortada del área seleccionada');
     
     // Obtener la hora oficial del dispositivo
     const ahora = new Date();
@@ -303,9 +310,6 @@ async function generarCaptura() {
     // Guardar la captura
     guardarCaptura(captura);
     cargarHistorial();
-    
-    // Reiniciar la selección
-    resetSelection();
     
     // Volver a iniciar la cámara
     await iniciarCamara();
