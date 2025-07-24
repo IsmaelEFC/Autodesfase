@@ -453,6 +453,74 @@ function obtenerHistorial() {
   }
 }
 
+// Función para mostrar una imagen en el visor modal
+function mostrarImagenEnVisor(src, info) {
+  const visor = document.getElementById('visor-modal');
+  const img = document.getElementById('visor-img');
+  const infoElement = document.getElementById('visor-info');
+  const botonMaps = document.getElementById('maps-btn');
+  const botonDescargar = document.getElementById('descargar-img');
+  
+  if (!visor || !img || !infoElement) {
+    console.error('Elementos del visor no encontrados');
+    return;
+  }
+  
+  // Configurar la imagen y la información
+  img.src = src;
+  infoElement.innerHTML = info || '';
+  
+  // Configurar botón de Google Maps si hay coordenadas
+  if (info && info.coords) {
+    botonMaps.style.display = 'inline-block';
+    botonMaps.onclick = () => {
+      const { latitude, longitude } = info.coords;
+      window.open(`https://www.google.com/maps?q=${latitude},${longitude}`, '_blank');
+    };
+  } else {
+    botonMaps.style.display = 'none';
+  }
+  
+  // Configurar botón de descarga
+  botonDescargar.onclick = () => {
+    const link = document.createElement('a');
+    link.href = src;
+    link.download = `captura-${new Date().toISOString().slice(0, 10)}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  // Mostrar el visor
+  visor.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  
+  // Configurar botón de cierre
+  const cerrarBtn = document.getElementById('cerrar-visor');
+  if (cerrarBtn) {
+    cerrarBtn.onclick = () => {
+      visor.style.display = 'none';
+      document.body.style.overflow = '';
+    };
+  }
+  
+  // Cerrar al hacer clic fuera de la imagen
+  visor.onclick = (e) => {
+    if (e.target === visor) {
+      visor.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  };
+  
+  // Cerrar con tecla Escape
+  document.onkeydown = (e) => {
+    if (e.key === 'Escape' && visor.style.display === 'flex') {
+      visor.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  };
+}
+
 // Cargar y mostrar el historial en la galería
 function cargarHistorial() {
   try {
@@ -524,7 +592,41 @@ function cargarHistorial() {
       grid.appendChild(itemContainer);
       
       // Configurar el manejador de clic para la imagen
-      setupGalleryImageClickHandler(img, captura);
+      img.onclick = (e) => {
+        e.stopPropagation();
+        console.log('Mostrando imagen en visor:', captura.timestamp);
+        
+        // Crear información detallada para mostrar en el visor
+        const fechaHora = new Date(captura.timestamp).toLocaleString('es-CL', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        
+        let infoHTML = `
+          <p><strong>Fecha y hora:</strong> ${fechaHora}</p>
+        `;
+        
+        if (captura.coords) {
+          const { latitude, longitude, accuracy } = captura.coords;
+          infoHTML += `
+            <p><strong>Ubicación:</strong> 
+              ${latitude.toFixed(6)}, ${longitude.toFixed(6)}
+              <small> (precisión: ${Math.round(accuracy)}m)</small>
+            </p>
+          `;
+        }
+        
+        if (captura.horaOficial) {
+          infoHTML += `<p><strong>Hora oficial:</strong> ${captura.horaOficial}</p>`;
+        }
+        
+        // Mostrar la imagen en el visor
+        mostrarImagenEnVisor(captura.src, infoHTML);
+      };
     });
   } catch (error) {
     console.error('Error al cargar el historial:', error);
