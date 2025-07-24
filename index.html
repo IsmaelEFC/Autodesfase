@@ -33,8 +33,25 @@
     <div id="contenedor-vistas">
       <section id="captura" class="vista visible">
           <div id="camera-wrapper">
-              <video id="camera" autoplay playsinline></video>
-              <button id="capture-btn">Capturar</button>
+              <div id="camera-container">
+                  <video id="camera" autoplay playsinline></video>
+                  <div id="selection-overlay">
+                      <div id="selection-rectangle"></div>
+                  </div>
+              </div>
+              <div class="camera-controls">
+                  <button id="toggle-selection-btn" class="btn-secondary" title="Activar/desactivar modo de selección">
+                      <span class="btn-icon">🖱️</span> Seleccionar área
+                  </button>
+                  <button id="capture-btn" class="btn-primary">
+                      <span class="btn-icon">📸</span> Capturar
+                  </button>
+              </div>
+              <div id="selection-instructions" class="instructions">
+                  <p>1. Haz clic en "Seleccionar área"</p>
+                  <p>2. Arrastra para seleccionar el área donde aparece la hora</p>
+                  <p>3. Haz clic en "Capturar" para tomar la foto</p>
+              </div>
           </div>
           <canvas id="canvas-preview" style="display:none;"></canvas>
       </section>

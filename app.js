@@ -4,6 +4,14 @@ const ctx = canvas.getContext('2d');
 const gallery = document.getElementById('history-grid');
 const toast = document.getElementById('status-toast');
 
+// Variables para el rectángulo de selección
+let isSelecting = false;
+let startX, startY;
+let selectionRect = document.getElementById('selection-rectangle');
+let selectionOverlay = document.getElementById('selection-overlay');
+let toggleSelectionBtn = document.getElementById('toggle-selection-btn');
+let cameraContainer = document.getElementById('camera-container');
+
 let coordenadas = null;
 
 // Inicializar cámara
@@ -58,7 +66,144 @@ async function detenerCamara() {
 }
 
 // Iniciar cámara al cargar la página
-iniciarCamara().catch(console.error);
+iniciarCamara().then(initSelectionHandlers).catch(console.error);
+
+// Inicializar manejadores de eventos para la selección
+function initSelectionHandlers() {
+  // Activar/desactivar modo de selección
+  toggleSelectionBtn.addEventListener('click', toggleSelectionMode);
+  
+  // Manejadores para el rectángulo de selección
+  selectionOverlay.addEventListener('mousedown', startSelection);
+  selectionOverlay.addEventListener('touchstart', handleTouchStart, { passive: false });
+  
+  // Para móviles: prevenir el desplazamiento al tocar la pantalla
+  selectionOverlay.addEventListener('touchmove', handleTouchMove, { passive: false });
+  selectionOverlay.addEventListener('touchend', handleTouchEnd);
+}
+
+// Activar/desactivar el modo de selección
+function toggleSelectionMode() {
+  isSelecting = !isSelecting;
+  
+  if (isSelecting) {
+    selectionOverlay.classList.add('active');
+    toggleSelectionBtn.classList.add('active');
+    toggleSelectionBtn.innerHTML = '<span class="btn-icon">✖️</span> Cancelar selección';
+    document.getElementById('selection-instructions').style.display = 'block';
+    mostrarEstado('info', 'Arrastra para seleccionar el área de la hora');
+  } else {
+    resetSelection();
+  }
+}
+
+// Iniciar selección
+function startSelection(e) {
+  if (!isSelecting) return;
+  
+  e.preventDefault();
+  
+  const rect = camera.getBoundingClientRect();
+  startX = e.clientX - rect.left;
+  startY = e.clientY - rect.top;
+  
+  // Asegurar que las coordenadas estén dentro de los límites del video
+  startX = Math.max(0, Math.min(startX, rect.width));
+  startY = Math.max(0, Math.min(startY, rect.height));
+  
+  selectionRect.style.left = `${startX}px`;
+  selectionRect.style.top = `${startY}px`;
+  selectionRect.style.width = '0';
+  selectionRect.style.height = '0';
+  selectionRect.classList.add('visible');
+  
+  document.addEventListener('mousemove', updateSelection);
+  document.addEventListener('mouseup', endSelection);
+}
+
+// Actualizar selección mientras se arrastra
+function updateSelection(e) {
+  if (!isSelecting) return;
+  
+  const rect = camera.getBoundingClientRect();
+  let currentX = e.clientX - rect.left;
+  let currentY = e.clientY - rect.top;
+  
+  // Asegurar que las coordenadas estén dentro de los límites del video
+  currentX = Math.max(0, Math.min(currentX, rect.width));
+  currentY = Math.max(0, Math.min(currentY, rect.height));
+  
+  // Calcular dimensiones del rectángulo
+  const width = Math.abs(currentX - startX);
+  const height = Math.abs(currentY - startY);
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  
+  // Actualizar estilos del rectángulo
+  selectionRect.style.left = `${left}px`;
+  selectionRect.style.top = `${top}px`;
+  selectionRect.style.width = `${width}px`;
+  selectionRect.style.height = `${height}px`;
+}
+
+// Finalizar selección
+function endSelection() {
+  if (!isSelecting) return;
+  
+  document.removeEventListener('mousemove', updateSelection);
+  document.removeEventListener('mouseup', endSelection);
+  
+  // Verificar si el área seleccionada es lo suficientemente grande
+  const width = parseInt(selectionRect.style.width);
+  const height = parseInt(selectionRect.style.height);
+  
+  if (width < 20 || height < 20) {
+    mostrarEstado('info', 'Selecciona un área más grande para mejorar la precisión del OCR');
+    resetSelection();
+  } else {
+    mostrarEstado('success', 'Área seleccionada. Ahora puedes capturar la imagen.');
+  }
+}
+
+// Manejadores para pantallas táctiles
+function handleTouchStart(e) {
+  if (!isSelecting) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const mouseEvent = new MouseEvent('mousedown', {
+    clientX: touch.clientX,
+    clientY: touch.clientY
+  });
+  startSelection(mouseEvent);
+}
+
+function handleTouchMove(e) {
+  if (!isSelecting) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const mouseEvent = new MouseEvent('mousemove', {
+    clientX: touch.clientX,
+    clientY: touch.clientY
+  });
+  updateSelection(mouseEvent);
+}
+
+function handleTouchEnd() {
+  if (!isSelecting) return;
+  endSelection();
+}
+
+// Reiniciar selección
+function resetSelection() {
+  isSelecting = false;
+  selectionOverlay.classList.remove('active');
+  selectionRect.classList.remove('visible');
+  selectionRect.style.width = '0';
+  selectionRect.style.height = '0';
+  toggleSelectionBtn.classList.remove('active');
+  toggleSelectionBtn.innerHTML = '<span class="btn-icon">🖱️</span> Seleccionar área';
+  document.getElementById('selection-instructions').style.display = 'none';
+}
 
 // Captura + coordenadas + hora oficial
 document.getElementById('capture-btn').addEventListener('click', () => {
@@ -74,43 +219,110 @@ document.getElementById('capture-btn').addEventListener('click', () => {
   });
 });
 
-function generarCaptura() {
-  const horaOficial = new Date().toLocaleTimeString("es-CL", {
-    timeZone: "America/Santiago",
-    hour12: false
-  });
-  const fechaCompleta = new Date().toLocaleDateString("es-CL", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric"
-  });
+async function generarCaptura() {
+  try {
+    // Detener la cámara temporalmente
+    const stream = camera.srcObject;
+    const tracks = stream.getTracks();
+    tracks.forEach(track => track.stop());
 
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-
-  ctx.drawImage(camera, 0, 0, canvas.width, canvas.height * 0.6);
-
-  ctx.fillStyle = "#1e1e1e";
-  ctx.fillRect(0, canvas.height * 0.6, canvas.width, canvas.height * 0.4);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "18px 'Segoe UI'";
-  ctx.fillText(`Hora oficial: ${horaOficial}`, 20, canvas.height * 0.65);
-  ctx.fillText(`Fecha: ${fechaCompleta}`, 20, canvas.height * 0.70);
-  ctx.fillText(`Fuente: horaoficial.cl`, 20, canvas.height * 0.75);
-  ctx.fillText(`Ubicación: ${coordenadas.lat}, ${coordenadas.lon}`, 20, canvas.height * 0.80);
-
-  const imagen = canvas.toDataURL("image/png");
-
-  const captura = {
-    timestamp: Date.now(),
-    coords: coordenadas,
-    src: imagen
-  };
-
-  guardarCaptura(captura);
-  mostrarEstado("success", "✅ Captura registrada");
+    // Configurar el canvas con las dimensiones del video
+    canvas.width = camera.videoWidth;
+    canvas.height = camera.videoHeight;
+    
+    // Dibujar el frame actual en el canvas
+    ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+    
+    // Si hay un área seleccionada, recortar la imagen
+    if (selectionRect.classList.contains('visible')) {
+      const rect = selectionRect.getBoundingClientRect();
+      const videoRect = camera.getBoundingClientRect();
+      
+      // Calcular la relación entre el tamaño del video y el tamaño mostrado
+      const scaleX = camera.videoWidth / videoRect.width;
+      const scaleY = camera.videoHeight / videoRect.height;
+      
+      // Calcular las coordenadas y dimensiones del recorte
+      const x = (rect.left - videoRect.left) * scaleX;
+      const y = (rect.top - videoRect.top) * scaleY;
+      const width = rect.width * scaleX;
+      const height = rect.height * scaleY;
+      
+      // Crear un nuevo canvas para la imagen recortada
+      const croppedCanvas = document.createElement('canvas');
+      const croppedCtx = croppedCanvas.getContext('2d');
+      
+      // Establecer el tamaño del canvas recortado
+      croppedCanvas.width = width;
+      croppedCanvas.height = height;
+      
+      // Dibujar solo la región seleccionada
+      croppedCtx.drawImage(
+        canvas,
+        x, y, width, height,  // Coordenadas de origen (recorte)
+        0, 0, width, height  // Coordenadas de destino (tamaño completo)
+      );
+      
+      // Reemplazar el canvas original con el recortado
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(croppedCanvas, 0, 0);
+      
+      mostrarEstado('info', 'Imagen recortada del área seleccionada');
+    }
+    
+    // Obtener la hora oficial del dispositivo
+    const ahora = new Date();
+    const opcionesHora = { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'America/Santiago'
+    };
+    
+    const opcionesFecha = { 
+      weekday: 'long',
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    };
+    
+    // Obtener la imagen como base64
+    const imagen = canvas.toDataURL('image/jpeg', 0.9);
+    
+    // Crear objeto con los datos de la captura
+    const captura = {
+      timestamp: ahora.getTime(),
+      coords: coordenadas,
+      src: imagen,
+      horaOficial: ahora.toLocaleTimeString('es-CL', opcionesHora),
+      fechaCompleta: ahora.toLocaleDateString('es-CL', { ...opcionesFecha, ...opcionesHora })
+    };
+    
+    // Guardar la captura
+    guardarCaptura(captura);
+    cargarHistorial();
+    
+    // Reiniciar la selección
+    resetSelection();
+    
+    // Volver a iniciar la cámara
+    await iniciarCamara();
+    
+    mostrarEstado('success', '✅ Captura registrada');
+    
+  } catch (error) {
+    console.error('Error al generar la captura:', error);
+    mostrarEstado('error', 'Error al generar la captura: ' + error.message);
+    
+    // Intentar reiniciar la cámara en caso de error
+    try {
+      await iniciarCamara();
+    } catch (e) {
+      console.error('Error al reiniciar la cámara:', e);
+    }
+  }
 }
 
 // Guardado local (usando localStorage)
