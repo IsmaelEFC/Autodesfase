@@ -72,29 +72,37 @@
     background: black;
   }
   
-  #capture-btn, #toggle-selection-btn {
+  .camera-controls {
     position: absolute;
-    bottom: 15px;
-    padding: 12px 20px;
-    font-size: 17px;
-    border: none;
-    border-radius: 6px;
+    bottom: 30px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
     z-index: 20;
-    color: white;
-    box-shadow: 0 0 6px rgba(0,0,0,0.3);
-    cursor: pointer;
-    transition: all 0.2s ease;
+    padding: 0 20px;
   }
   
   #capture-btn {
-    left: 50%;
-    transform: translateX(-50%);
+    padding: 15px 30px;
+    font-size: 18px;
+    border: none;
+    border-radius: 50%;
+    width: 70px;
+    height: 70px;
     background-color: #0078d4;
+    color: white;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
-  #toggle-selection-btn {
-    left: 20px;
-    background-color: #4CAF50;
+  #capture-btn:active {
+    transform: scale(0.95);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
   }
   
   #toggle-selection-btn.active {

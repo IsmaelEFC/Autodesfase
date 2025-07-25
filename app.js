@@ -69,35 +69,90 @@ async function iniciarCamara() {
     // Configuración de la cámara con valores más compatibles
     const constraints = {
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 },
         facingMode: { ideal: 'environment' },
-        frameRate: { ideal: 24, max: 30 }
+        frameRate: { ideal: 24, max: 30 },
+        aspectRatio: { ideal: 16/9 }
       },
       audio: false
     };
     
     // Configuración adicional para iOS
     if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+      // iOS necesita un enfoque diferente - usar solo configuraciones básicas
       constraints.video = {
-        ...constraints.video,
-        mandatory: {
-          ...constraints.video.mandatory,
-          minWidth: 640,
-          minHeight: 480,
-          minFrameRate: 24
-        }
+        width: { min: 640, ideal: 1280 },
+        height: { min: 480, ideal: 720 },
+        facingMode: { ideal: 'environment' },
+        frameRate: { ideal: 24 }
       };
+      
+      // Aplicar configuración específica para iOS 15+
+      if (navigator.userAgent.match(/OS 1[5-9]|OS [2-9]\d/)) {
+        constraints.video = {
+          ...constraints.video,
+          advanced: [
+            { width: 1280, height: 720 },
+            { width: 1920, height: 1080 },
+            { width: 640, height: 480 }
+          ]
+        };
+      }
     }
     
     // Intentar con la configuración ideal primero
     try {
+      console.log('Intentando iniciar cámara con configuración:', JSON.stringify(constraints));
       cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('Cámara trasera iniciada con éxito');
+      
+      // Verificar si el stream tiene pistas de video
+      const videoTracks = cameraStream.getVideoTracks();
+      if (videoTracks.length === 0) {
+        throw new Error('No se encontraron pistas de video en el stream');
+      }
+      
+      // Configurar el elemento de video
+      camera.srcObject = cameraStream;
+      await new Promise((resolve) => {
+        camera.onloadedmetadata = () => {
+          console.log('Metadatos de video cargados:', {
+            videoWidth: camera.videoWidth,
+            videoHeight: camera.videoHeight,
+            readyState: camera.readyState
+          });
+          resolve();
+        };
+      });
+      
+      // Esperar a que el video esté realmente listo
+      await new Promise((resolve) => {
+        if (videoListo(camera)) {
+          resolve();
+        } else {
+          const checkVideo = setInterval(() => {
+            if (videoListo(camera)) {
+              clearInterval(checkVideo);
+              resolve();
+            }
+          }, 100);
+        }
+      });
+      
+      console.log('Reproducción de cámara iniciada');
+      return;
+      
     } catch (e) {
-      console.warn('No se pudo acceder a la cámara trasera, intentando con cámara frontal', e);
-      // Si falla, intentar con cualquier cámara
-      constraints.video.facingMode = 'user';
+      console.error('Error al iniciar la cámara:', e);
+      
+      // Si falla, intentar con configuración más básica
+      console.warn('Intentando con configuración alternativa...');
+      constraints.video = {
+        width: { min: 320, ideal: 640 },
+        height: { min: 240, ideal: 480 },
+        facingMode: { ideal: 'environment' }
+      };
       cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('Cámara frontal iniciada con éxito');
     }
@@ -419,22 +474,57 @@ function videoListo(video) {
 // Variables para el control de captura
 let isCapturing = false;
 
-// Función para capturar un frame del video
-function captureFrame(video) {
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+// Función para capturar un frame del video con reintentos
+async function captureFrame(video, maxAttempts = 3, delay = 100) {
+  let attempts = 0;
+  let lastError = null;
   
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  
-  // Verificar si la imagen no está vacía
-  const imageData = ctx.getImageData(0, 0, 1, 1).data;
-  if (imageData[3] === 0) { // Si el canal alpha es 0, la imagen está vacía
-    throw new Error('La imagen capturada está vacía');
+  while (attempts < maxAttempts) {
+    try {
+      // Verificar que el video tenga dimensiones válidas
+      if (!video.videoWidth || !video.videoHeight) {
+        throw new Error('Dimensiones de video no válidas');
+      }
+      
+      // Crear un nuevo canvas para cada intento
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      
+      // Dibujar el frame actual
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Verificar que el canvas tenga contenido
+      const imageData = ctx.getImageData(0, 0, 1, 1).data;
+      if (imageData[3] === 0) { // Si el canal alpha es 0, la imagen está vacía
+        throw new Error('La imagen capturada está vacía');
+      }
+      
+      // Verificar que el canvas tenga dimensiones válidas
+      if (canvas.width === 0 || canvas.height === 0) {
+        throw new Error('Dimensiones del canvas no válidas');
+      }
+      
+      // Si llegamos aquí, la captura fue exitosa
+      console.log('Captura exitosa en el intento', attempts + 1);
+      return canvas.toDataURL('image/jpeg', 0.9);
+      
+    } catch (error) {
+      console.warn(`Intento ${attempts + 1} fallido:`, error.message);
+      lastError = error;
+      attempts++;
+      
+      // Esperar antes de reintentar
+      if (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
   
-  return canvas.toDataURL('image/jpeg', 0.9);
+  // Si llegamos aquí, todos los intentos fallaron
+  throw new Error(`No se pudo capturar el frame después de ${maxAttempts} intentos: ${lastError?.message || 'Error desconocido'}`);
 }
 
 async function generarCaptura() {
@@ -471,16 +561,31 @@ async function generarCaptura() {
       throw new Error('Las dimensiones del video no son válidas');
     }
     
-    // Capturar el frame
-    capturedFrame = captureFrame(camera);
+    // Capturar el frame con reintentos
+    console.log('Iniciando captura de frame...');
+    capturedFrame = await captureFrame(camera, 5, 200); // 5 intentos, 200ms entre intentos
+    
+    // Verificar que la captura sea válida
+    if (!capturedFrame || capturedFrame.startsWith('data:,') || capturedFrame.length < 100) {
+      throw new Error('La captura no generó una imagen válida');
+    }
     
     // Crear una imagen para verificar la captura
     const img = new Image();
     await new Promise((resolve, reject) => {
-      img.onload = resolve;
+      img.onload = () => {
+        console.log('Imagen capturada con dimensiones:', img.width, 'x', img.height);
+        if (img.width === 0 || img.height === 0) {
+          reject(new Error('La imagen capturada tiene dimensiones inválidas'));
+        } else {
+          resolve();
+        }
+      };
       img.onerror = () => reject(new Error('Error al cargar la imagen capturada'));
       img.src = capturedFrame;
     });
+    
+    console.log('Captura verificada correctamente');
 
     // Función para esperar a que el video esté listo
     const waitForVideoReady = async (maxAttempts = 10, delay = 200) => {
