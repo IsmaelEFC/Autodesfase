@@ -416,30 +416,102 @@ function videoListo(video) {
          video.videoHeight > 0;
 }
 
+// Variables para el control de captura
+let isCapturing = false;
+
+// Función para capturar un frame del video
+function captureFrame(video) {
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  
+  // Verificar si la imagen no está vacía
+  const imageData = ctx.getImageData(0, 0, 1, 1).data;
+  if (imageData[3] === 0) { // Si el canal alpha es 0, la imagen está vacía
+    throw new Error('La imagen capturada está vacía');
+  }
+  
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
 async function generarCaptura() {
+  // Evitar múltiples capturas simultáneas
+  if (isCapturing) {
+    console.log('Ya hay una captura en progreso');
+    return;
+  }
+  
+  isCapturing = true;
+  let capturedFrame = null;
+  
   try {
+    console.log('Iniciando generación de captura...');
+    
     // Verificar que la cámara esté disponible
     if (!camera || !camera.srcObject) {
       throw new Error('La cámara no está disponible');
     }
+    
+    // Esperar a que el video esté listo
+    if (camera.readyState < 2) { // MENOS que HAVE_CURRENT_DATA
+      await new Promise((resolve) => {
+        const onLoadedData = () => {
+          camera.removeEventListener('loadeddata', onLoadedData);
+          resolve();
+        };
+        camera.addEventListener('loadeddata', onLoadedData);
+      });
+    }
+    
+    // Verificar dimensiones del video
+    if (camera.videoWidth === 0 || camera.videoHeight === 0) {
+      throw new Error('Las dimensiones del video no son válidas');
+    }
+    
+    // Capturar el frame
+    capturedFrame = captureFrame(camera);
+    
+    // Crear una imagen para verificar la captura
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('Error al cargar la imagen capturada'));
+      img.src = capturedFrame;
+    });
+
+    // Función para esperar a que el video esté listo
+    const waitForVideoReady = async (maxAttempts = 10, delay = 200) => {
+      for (let i = 0; i < maxAttempts; i++) {
+        if (videoListo(camera)) {
+          console.log(`Video listo en el intento ${i + 1}`);
+          return true;
+        }
+        console.log(`Esperando a que el video esté listo... (intento ${i + 1}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      return false;
+    };
 
     // Esperar a que el video esté listo
     console.log('Verificando estado del video...');
-    if (!videoListo(camera)) {
-      console.log('Esperando a que el video esté listo...');
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    const isVideoReady = await waitForVideoReady();
+    
+    if (!isVideoReady) {
+      console.warn('El video no está listo después de varios intentos, intentando continuar...');
       
-      if (!videoListo(camera)) {
-        // Intentar forzar una actualización de las dimensiones
-        if (camera.videoWidth === 0 || camera.videoHeight === 0) {
-          camera.videoWidth = camera.offsetWidth;
-          camera.videoHeight = camera.offsetHeight;
-          console.warn('Usando dimensiones del contenedor como respaldo');
-        }
-        
-        if (!videoListo(camera)) {
-          throw new Error('El video de la cámara no está listo después de esperar');
-        }
+      // Intentar forzar dimensiones si son cero
+      if (camera.videoWidth === 0 || camera.videoHeight === 0) {
+        console.warn('Usando dimensiones del contenedor como respaldo');
+        camera.videoWidth = camera.offsetWidth || 640;
+        camera.videoHeight = camera.offsetHeight || 480;
+      }
+      
+      // Verificar nuevamente después de forzar dimensiones
+      if (camera.videoWidth === 0 || camera.videoHeight === 0) {
+        throw new Error('No se pudieron determinar las dimensiones del video');
       }
     }
 
@@ -447,16 +519,18 @@ async function generarCaptura() {
     let videoWidth = camera.videoWidth || camera.offsetWidth || 640;
     let videoHeight = camera.videoHeight || camera.offsetHeight || 480;
     
-    // Asegurar dimensiones mínimas
-    videoWidth = Math.max(videoWidth, 100);
-    videoHeight = Math.max(videoHeight, 100);
+    // Asegurar dimensiones válidas
+    videoWidth = Math.max(100, Math.min(videoWidth, 4096)); // Máximo 4K para evitar problemas de rendimiento
+    videoHeight = Math.max(100, Math.min(videoHeight, 2160));
     
     console.log(`Dimensiones del video: ${videoWidth}x${videoHeight}`);
     
     // Crear un nuevo canvas temporal
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = videoWidth;
-    tempCanvas.height = videoHeight;
+    
+    // Asegurarse de que las dimensiones sean números enteros
+    tempCanvas.width = Math.floor(videoWidth);
+    tempCanvas.height = Math.floor(videoHeight);
     
     // Obtener el contexto 2D con willReadFrequently para mejor rendimiento
     const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
@@ -465,38 +539,91 @@ async function generarCaptura() {
     }
     
     // Configurar el canvas principal
-    canvas.width = videoWidth;
-    canvas.height = videoHeight;
+    canvas.width = Math.floor(videoWidth);
+    canvas.height = Math.floor(videoHeight);
     
-    // Dibujar el frame actual en el canvas temporal
+    // Obtener el contexto del canvas principal
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('No se pudo obtener el contexto 2D del canvas principal');
+    }
+    
+    // Dibujar el frame actual
     try {
-      console.log('Dibujando frame en canvas temporal...');
+      console.log('Dibujando frame...');
       
-      // Limpiar el canvas temporal
-      tempCtx.fillStyle = 'black';
-      tempCtx.fillRect(0, 0, videoWidth, videoHeight);
-      
-      // Dibujar la imagen de la cámara
-      tempCtx.drawImage(camera, 0, 0, videoWidth, videoHeight);
-      
-      // Verificar que el contenido se dibujó correctamente
-      try {
-        const imageData = tempCtx.getImageData(0, 0, 1, 1).data;
-        console.log('Datos de píxel de muestra:', imageData);
-      } catch (checkError) {
-        console.warn('No se pudo verificar la imagen capturada:', checkError);
+      // 1. Verificar que las dimensiones sean válidas
+      if (tempCanvas.width <= 0 || tempCanvas.height <= 0) {
+        throw new Error(`Dimensiones inválidas del canvas temporal: ${tempCanvas.width}x${tempCanvas.height}`);
       }
       
-      // Dibujar la imagen del canvas temporal al canvas principal
-      ctx.drawImage(tempCanvas, 0, 0, videoWidth, videoHeight);
+      if (canvas.width <= 0 || canvas.height <= 0) {
+        throw new Error(`Dimensiones inválidas del canvas principal: ${canvas.width}x${canvas.height}`);
+      }
       
-      // Verificar que el canvas principal tenga contenido
-      const mainImageData = ctx.getImageData(0, 0, 1, 1).data;
-      console.log('Datos de píxel en canvas principal:', mainImageData);
+      // 2. Limpiar el canvas temporal con un color conocido
+      tempCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+      
+      // 3. Dibujar la imagen de la cámara en el canvas temporal
+      try {
+        // Usar un try-catch separado para drawImage
+        tempCtx.drawImage(
+          camera,
+          0, 0, Math.max(1, camera.videoWidth), Math.max(1, camera.videoHeight),  // Fuente (asegurar dimensiones mínimas)
+          0, 0, tempCanvas.width, tempCanvas.height                               // Destino
+        );
+      } catch (drawError) {
+        console.error('Error al dibujar en canvas temporal:', drawError);
+        throw new Error(`No se pudo dibujar la imagen: ${drawError.message}`);
+      }
+      
+      // 4. Verificar que el canvas temporal tenga contenido
+      try {
+        const tempImageData = tempCtx.getImageData(0, 0, 1, 1).data;
+        console.log('Datos de píxel en canvas temporal:', tempImageData);
+      } catch (checkError) {
+        console.warn('No se pudo verificar el canvas temporal:', checkError);
+      }
+      
+      // 5. Limpiar el canvas principal
+      ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // 6. Dibujar la imagen del canvas temporal al canvas principal
+      try {
+        ctx.drawImage(tempCanvas, 0, 0);
+      } catch (drawError) {
+        console.error('Error al dibujar en canvas principal:', drawError);
+        throw new Error(`No se pudo copiar al canvas principal: ${drawError.message}`);
+      }
+      
+      // 7. Verificar que el canvas principal tenga contenido
+      try {
+        const mainImageData = ctx.getImageData(0, 0, 1, 1).data;
+        console.log('Datos de píxel en canvas principal:', mainImageData);
+      } catch (checkError) {
+        console.warn('No se pudo verificar el canvas principal:', checkError);
+      }
       
     } catch (drawError) {
       console.error('Error al dibujar la imagen:', drawError);
       throw new Error('No se pudo capturar la imagen de la cámara: ' + drawError.message);
+    } finally {
+      // Siempre asegurarse de limpiar el estado de captura
+      isCapturing = false;
+      
+      // Forzar la recolección de basura para liberar recursos
+      if (typeof window.gc === 'function') {
+        window.gc();
+      }
+      
+      // Liberar recursos del canvas temporal
+      if (tempCanvas) {
+        tempCanvas.width = 1;
+        tempCanvas.height = 1;
+        tempCtx.clearRect(0, 0, 1, 1);
+      }
     }
     
     // Detener la cámara después de capturar el frame
@@ -1125,8 +1252,41 @@ async function mostrarSeccion(id) {
   history.pushState({ section: id }, '', `#${id}`);
 }
 
+// Función para inicializar los botones
+function initButtons() {
+  // Botón de captura
+  const captureBtn = document.getElementById('capture-btn');
+  if (captureBtn) {
+    captureBtn.addEventListener('click', () => {
+      console.log('Botón de captura presionado');
+      navigator.geolocation.getCurrentPosition(pos => {
+        coordenadas = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          acc: pos.coords.accuracy
+        };
+        generarCaptura();
+      }, (err) => {
+        console.warn('Error al obtener ubicación:', err);
+        generarCaptura(); // Continuar sin ubicación
+      });
+    });
+  } else {
+    console.error('No se encontró el botón de captura');
+  }
+
+  // Botón de alternar selección
+  const toggleBtn = document.getElementById('toggle-selection-btn');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', toggleSelectionMode);
+  }
+}
+
 // Inicialización
 document.addEventListener('DOMContentLoaded', () => {
+  // Inicializar los botones
+  initButtons();
+  
   // Manejar navegación con teclado en las pestañas
   const tabs = document.querySelectorAll('.tab[role="tab"]');
   tabs.forEach(tab => {
