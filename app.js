@@ -63,9 +63,11 @@ async function generarCaptura() {
                 captura.ocrResult = ocrResult;
             } else {
                 captura.ocrError = 'Tesseract.js no está disponible';
+                mostrarEstado('error', 'No se pudo cargar Tesseract.js para OCR');
             }
         } catch (ocrError) {
             captura.ocrError = 'No se pudo procesar el texto: ' + ocrError.message;
+            mostrarEstado('error', 'No se detectó texto válido en el recuadro');
         }
         await guardarCaptura(captura);
         cargarHistorial();
@@ -90,15 +92,53 @@ async function getCoordenadas() {
 
 async function extraerFechaConOCR(imagenElement) {
     try {
-        const { data: { text, confidence } } = await Tesseract.recognize(imagenElement, 'spa+eng');
+        // Crear un canvas temporal para recortar el área del recuadro verde
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // Obtener dimensiones del recuadro verde (#selection-rectangle)
+        const rectangle = document.getElementById('selection-rectangle');
+        const rectStyles = getComputedStyle(rectangle);
+        const rectWidthPercent = parseFloat(rectStyles.width) / 100; // 80% del contenedor
+        const rectAspectRatio = 16 / 9; // Definido en CSS
+        const videoWidth = imagenElement.width;
+        const videoHeight = imagenElement.height;
+
+        // Calcular dimensiones y posición del recuadro en píxeles
+        const rectWidth = videoWidth * rectWidthPercent;
+        const rectHeight = rectWidth / rectAspectRatio;
+        const rectX = (videoWidth - rectWidth) / 2; // Centrado horizontalmente
+        const rectY = (videoHeight - rectHeight) / 2; // Centrado verticalmente
+
+        // Configurar el canvas temporal con las dimensiones del recuadro
+        tempCanvas.width = rectWidth;
+        tempCanvas.height = rectHeight;
+
+        // Recortar la imagen al área del recuadro
+        tempCtx.drawImage(
+            imagenElement,
+            rectX, rectY, rectWidth, rectHeight, // Área fuente (recuadro)
+            0, 0, rectWidth, rectHeight // Área destino (canvas temporal)
+        );
+
+        // Configurar Tesseract.js con parámetros optimizados
+        const { data: { text, confidence } } = await Tesseract.recognize(tempCanvas, 'spa+eng', {
+            tessedit_pageseg_mode: '6', // Asume un bloque de texto uniforme
+            tessedit_char_whitelist: '0123456789-:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        });
         console.log('OCR text:', text);
+
         // Expresión regular para detectar múltiples formatos de fecha y hora
         const fechaHora = text.match(
             /(?:(\d{1,2})[-\/](?:\d{1,2}|(?:jan|ene|feb|mar|apr|abr|may|jun|jul|ago|aug|sep|oct|nov|dic|dec)[a-z]*)[-\/](\d{4}))(?:\s+(?:lun|mar|mié|jue|vie|sáb|dom|mon|tue|wed|thu|fri|sat|sun))?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i
         );
         if (fechaHora) {
             const [_, dia, anio, hora, minuto, segundo] = fechaHora;
-            return { fechaHora: `${dia}-${text.match(/(jan|ene|feb|mar|apr|abr|may|jun|jul|ago|aug|sep|oct|nov|dic|dec)/i)?.[0] || text.match(/\d{1,2}/)?.[0]}-${anio} ${hora}:${minuto}${segundo ? `:${segundo}` : ''}`, confianza: confidence };
+            const mesMatch = text.match(/(jan|ene|feb|mar|apr|abr|may|jun|jul|ago|aug|sep|oct|nov|dic|dec)/i)?.[0] || text.match(/\d{1,2}/)?.[0];
+            return {
+                fechaHora: `${dia}-${mesMatch}-${anio} ${hora}:${minuto}${segundo ? `:${segundo}` : ''}`,
+                confianza: confidence
+            };
         }
         return { fechaHora: null, confianza: 0 };
     } catch (error) {
