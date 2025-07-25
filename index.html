@@ -2,11 +2,48 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autodesfase</title>
-    <link rel="stylesheet" href="./style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="author" content="TimeCam Team">
+    <meta name="description" content="TimeCam - Captura la hora oficial y tu ubicación con evidencia fotográfica">
+    <title>TimeCam - Captura de Hora y Ubicación</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#0078d4">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TimeCam">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="TimeCam">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://timecam.app/">
+    <meta property="og:title" content="TimeCam - Captura de Hora y Ubicación">
+    <meta property="og:description" content="Captura la hora oficial y tu ubicación con evidencia fotográfica">
+    <meta property="og:image" content="/src/assets/icons/icon-512x512.png">
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://timecam.app/">
+    <meta name="twitter:title" content="TimeCam - Captura de Hora y Ubicación">
+    <meta name="twitter:description" content="Captura la hora oficial y tu ubicación con evidencia fotográfica">
+    <meta name="twitter:image" content="/src/assets/icons/icon-512x512.png">
+    
+    <!-- Icons -->
+    <link rel="icon" href="/src/assets/icons/icon-192x192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/src/assets/icons/icon-192x192.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta property="og:image" content="/src/assets/icons/icon-512x512.png">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://timecam.example.com/">
+    <meta property="twitter:title" content="TimeCam - Captura de Tiempo">
+    <meta property="twitter:description" content="Aplicación para capturar y registrar la hora oficial con geolocalización">
+    <meta property="twitter:image" content="/src/assets/icons/icon-512x512.png">
+    <link rel="stylesheet" href="./src/css/style.css">
     <link rel="manifest" href="./manifest.json">
-    <link rel="icon" href="./icons/icon-192x192.png">
+    <link rel="icon" href="./src/assets/icons/icon-192x192.png">
     <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 </head>
 <body>
@@ -56,7 +93,7 @@
 
     <div id="status-toast"></div>
 
-    <script src="./captura-db.js"></script>
-    <script src="./app.js"></script>
+    <script type="module" src="./src/js/modules/captura-db.js"></script>
+    <script type="module" src="./src/js/app.js"></script>
 </body>
 </html>
