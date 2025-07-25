@@ -90,12 +90,15 @@ async function getCoordenadas() {
 
 async function extraerFechaConOCR(imagenElement) {
     try {
-        const { data: { text } } = await Tesseract.recognize(imagenElement, 'spa+eng');
+        const { data: { text, confidence } } = await Tesseract.recognize(imagenElement, 'spa+eng');
         console.log('OCR text:', text);
-        const fechaHora = text.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        // Expresión regular para detectar múltiples formatos de fecha y hora
+        const fechaHora = text.match(
+            /(?:(\d{1,2})[-\/](?:\d{1,2}|(?:jan|ene|feb|mar|apr|abr|may|jun|jul|ago|aug|sep|oct|nov|dic|dec)[a-z]*)[-\/](\d{4}))(?:\s+(?:lun|mar|mié|jue|vie|sáb|dom|mon|tue|wed|thu|fri|sat|sun))?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i
+        );
         if (fechaHora) {
-            const [_, dia, mes, anio, hora, minuto, segundo] = fechaHora;
-            return { fechaHora: `${dia}-${mes}-${anio} ${hora}:${minuto}${segundo ? `:${segundo}` : ''}`, confianza: 90 };
+            const [_, dia, anio, hora, minuto, segundo] = fechaHora;
+            return { fechaHora: `${dia}-${text.match(/(jan|ene|feb|mar|apr|abr|may|jun|jul|ago|aug|sep|oct|nov|dic|dec)/i)?.[0] || text.match(/\d{1,2}/)?.[0]}-${anio} ${hora}:${minuto}${segundo ? `:${segundo}` : ''}`, confianza: confidence };
         }
         return { fechaHora: null, confianza: 0 };
     } catch (error) {
