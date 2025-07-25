@@ -31,6 +31,9 @@ async function iniciarCamara() {
 
 async function generarCaptura() {
     try {
+        // Mostrar indicador de procesamiento
+        mostrarEstado('processing', 'Procesando...');
+
         if (!videoListo(camera)) {
             throw new Error('Cámara no lista');
         }
@@ -67,7 +70,7 @@ async function generarCaptura() {
             }
         } catch (ocrError) {
             captura.ocrError = 'No se pudo procesar el texto: ' + ocrError.message;
-            mostrarEstado('error', 'No se detectó texto válido en el recuadro');
+            mostrarEstado('error', 'No se detectó texto válido en el recuadro. Verifica la iluminación, enfoque o tamaño del texto.');
         }
         await guardarCaptura(captura);
         cargarHistorial();
@@ -121,10 +124,24 @@ async function extraerFechaConOCR(imagenElement) {
             0, 0, rectWidth, rectHeight // Área destino (canvas temporal)
         );
 
+        // Preprocesamiento: Aplicar escala de grises y aumentar contraste
+        tempCtx.filter = 'grayscale(100%) contrast(150%)';
+        tempCtx.drawImage(tempCanvas, 0, 0);
+
+        // Aumentar la resolución del canvas temporal para mejorar la detección
+        const scaleFactor = 2; // Duplicar la resolución
+        const scaledCanvas = document.createElement('canvas');
+        const scaledCtx = scaledCanvas.getContext('2d');
+        scaledCanvas.width = rectWidth * scaleFactor;
+        scaledCanvas.height = rectHeight * scaleFactor;
+        scaledCtx.imageSmoothingEnabled = true;
+        scaledCtx.drawImage(tempCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+
         // Configurar Tesseract.js con parámetros optimizados
-        const { data: { text, confidence } } = await Tesseract.recognize(tempCanvas, 'spa+eng', {
+        const { data: { text, confidence } } = await Tesseract.recognize(scaledCanvas, 'spa+eng', {
             tessedit_pageseg_mode: '6', // Asume un bloque de texto uniforme
-            tessedit_char_whitelist: '0123456789-:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+            tessedit_char_whitelist: '0123456789-:abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
+            tessedit_ocr_engine_mode: '1' // Usa modo LSTM solo (más preciso para texto claro)
         });
         console.log('OCR text:', text);
 
@@ -150,7 +167,16 @@ function mostrarEstado(tipo, mensaje) {
     toast.className = `toast-${tipo}`;
     toast.textContent = mensaje;
     toast.style.opacity = '1';
-    setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+    if (tipo === 'processing') {
+        toast.style.animation = 'spin 1s linear infinite';
+    } else {
+        toast.style.animation = 'none';
+    }
+    setTimeout(() => {
+        if (tipo !== 'processing') {
+            toast.style.opacity = '0';
+        }
+    }, tipo === 'processing' ? 0 : 2500);
 }
 
 function cargarHistorial() {
