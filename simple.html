@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificador Horario DVR</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 100%;
+            padding: 20px;
+            margin: 0;
+        }
+        #camera-container {
+            position: relative;
+            width: 100%;
+            margin: 0 auto;
+        }
+        #camera {
+            width: 100%;
+            display: block;
+        }
+        #selection-rectangle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 20%;
+            border: 3px solid #4CAF50;
+            background-color: rgba(76, 175, 80, 0.1);
+            pointer-events: none;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Verificador Horario DVR</h1>
+    <p>Enfoca la pantalla del DVR en el rectángulo verde</p>
+    
+    <div id="camera-container">
+        <video id="camera" autoplay playsinline></video>
+        <div id="selection-rectangle"></div>
+    </div>
+    
+    <button id="capture-btn">Capturar y Comparar</button>
+    
+    <div id="results"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script>
+        // Elementos del DOM
+        const camera = document.getElementById('camera');
+        const captureBtn = document.getElementById('capture-btn');
+        const resultsDiv = document.getElementById('results');
+        const rectangle = document.getElementById('selection-rectangle');
+        
+        // Variables de estado
+        let stream = null;
+        
+        // 1. Iniciar cámara
+        async function iniciarCamara() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                camera.srcObject = stream;
+            } catch (err) {
+                resultsDiv.innerHTML = `<p style="color:red">Error al acceder a la cámara: ${err.message}</p>`;
+            }
+        }
+        
+        // 2. Capturar y procesar imagen
+        captureBtn.addEventListener('click', async () => {
+            try {
+                resultsDiv.innerHTML = "<p>Procesando...</p>";
+                
+                // Crear canvas temporal para recortar el área de interés
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Obtener dimensiones del rectángulo
+                const rect = rectangle.getBoundingClientRect();
+                const videoRect = camera.getBoundingClientRect();
+                
+                // Calcular posición relativa
+                const scaleX = camera.videoWidth / videoRect.width;
+                const scaleY = camera.videoHeight / videoRect.height;
+                
+                const x = (rect.left - videoRect.left) * scaleX;
+                const y = (rect.top - videoRect.top) * scaleY;
+                const width = rect.width * scaleX;
+                const height = rect.height * scaleY;
+                
+                // Configurar canvas y dibujar la región de interés
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(camera, x, y, width, height, 0, 0, width, height);
+                
+                // 3. Procesar OCR con Tesseract
+                const { data: { text } } = await Tesseract.recognize(
+                    canvas,
+                    'eng+spa',
+                    { 
+                        tessedit_char_whitelist: '0123456789:-/ ',
+                        preserve_interword_spaces: '1'
+                    }
+                );
+                
+                // 4. Extraer fecha/hora del texto reconocido
+                const horaDVR = extraerHora(text);
+                if (!horaDVR) throw new Error("No se pudo reconocer la hora en el DVR");
+                
+                // 5. Obtener hora oficial de Chile
+                const horaOficial = await obtenerHoraOficial();
+                
+                // 6. Calcular diferencia
+                const diferencia = calcularDiferencia(horaDVR, horaOficial);
+                
+                // 7. Mostrar resultados
+                mostrarResultados(horaDVR, horaOficial, diferencia);
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `<p style="color:red">Error: ${error.message}</p>`;
+            }
+        });
+        
+        // Funciones auxiliares
+        function extraerHora(texto) {
+            // Busca patrones como "HH:MM:SS" o "HH:MM"
+            const regex = /(\d{1,2}):(\d{2})(?::(\d{2}))?/;
+            const match = texto.match(regex);
+            
+            if (match) {
+                const horas = parseInt(match[1]);
+                const minutos = parseInt(match[2]);
+                const segundos = match[3] ? parseInt(match[3]) : 0;
+                
+                // Validar valores
+                if (horas >= 0 && horas < 24 && minutos >= 0 && minutos < 60 && segundos >= 0 && segundos < 60) {
+                    return { horas, minutos, segundos };
+                }
+            }
+            return null;
+        }
+        
+        async function obtenerHoraOficial() {
+            try {
+                // Usamos un endpoint público que devuelve la hora actual
+                const response = await fetch('https://worldtimeapi.org/api/timezone/America/Santiago');
+                const data = await response.json();
+                
+                const fecha = new Date(data.datetime);
+                return {
+                    horas: fecha.getHours(),
+                    minutos: fecha.getMinutes(),
+                    segundos: fecha.getSeconds()
+                };
+                
+            } catch (error) {
+                // Fallback a la hora del dispositivo
+                console.error("Error al obtener hora oficial, usando hora local:", error);
+                const ahora = new Date();
+                return {
+                    horas: ahora.getHours(),
+                    minutos: ahora.getMinutes(),
+                    segundos: ahora.getSeconds()
+                };
+            }
+        }
+        
+        function calcularDiferencia(horaDVR, horaOficial) {
+            // Convertir a segundos para facilitar cálculo
+            const segundosDVR = horaDVR.horas * 3600 + horaDVR.minutos * 60 + horaDVR.segundos;
+            const segundosOficial = horaOficial.horas * 3600 + horaOficial.minutos * 60 + horaOficial.segundos;
+            
+            const diferenciaSegundos = segundosDVR - segundosOficial;
+            
+            // Convertir a formato legible
+            const signo = diferenciaSegundos >= 0 ? '+' : '-';
+            const absDiff = Math.abs(diferenciaSegundos);
+            const horas = Math.floor(absDiff / 3600);
+            const minutos = Math.floor((absDiff % 3600) / 60);
+            const segundos = absDiff % 60;
+            
+            return {
+                segundos: diferenciaSegundos,
+                texto: `${signo} ${horas}h ${minutos}m ${segundos}s`
+            };
+        }
+        
+        function mostrarResultados(horaDVR, horaOficial, diferencia) {
+            const formatoHora = (h) => `${h.horas.toString().padStart(2, '0')}:${h.minutos.toString().padStart(2, '0')}:${h.segundos.toString().padStart(2, '0')}`;
+            
+            let mensaje = "";
+            if (diferencia.segundos === 0) {
+                mensaje = "✅ El DVR está perfectamente sincronizado";
+            } else if (diferencia.segundos > 0) {
+                mensaje = `⏩ El DVR está ADELANTADO por ${diferencia.texto}`;
+            } else {
+                mensaje = `⏪ El DVR está RETRASADO por ${diferencia.texto}`;
+            }
+            
+            resultsDiv.innerHTML = `
+                <h3>Resultado:</h3>
+                <p><strong>Hora DVR:</strong> ${formatoHora(horaDVR)}</p>
+                <p><strong>Hora Oficial:</strong> ${formatoHora(horaOficial)}</p>
+                <p><strong>Diferencia:</strong> ${mensaje}</p>
+            `;
+        }
+        
+        // Iniciar la aplicación
+        iniciarCamara();
+    </script>
+</body>
+</html>
