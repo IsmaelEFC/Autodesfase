@@ -1,102 +1,62 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="manifest" href="manifest.json" />
-    <link rel="stylesheet" href="style.css" />
-    <title>TimeCam</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autodesfase</title>
+    <link rel="stylesheet" href="./style.css">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" href="./icons/icon-192x192.png">
+    <script src="https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
 </head>
-
 <body>
-    <div class="segment-control" id="tab-selector" role="tablist" aria-label="Navegación principal">
-        <button class="tab active" 
-                id="tab-captura"
-                role="tab" 
-                aria-selected="true" 
-                aria-controls="captura"
-                onclick="mostrarSeccion('captura')">
-            📷 Capturar
-        </button>
-        <button class="tab" 
-                id="tab-historial"
-                role="tab" 
-                aria-selected="false" 
-                aria-controls="historial"
-                onclick="mostrarSeccion('historial')">
-            🗂️ Historial
-        </button>
-        <div class="tab-indicator" id="tab-indicator" aria-hidden="true"></div>
+    <div id="tab-menu" class="segment-control" role="tablist">
+        <button class="tab active" role="tab" aria-controls="captura" aria-selected="true" id="tab-captura">📷 Capturar</button>
+        <button class="tab" role="tab" aria-controls="historial" aria-selected="false" id="tab-historial">🗂️ Historial</button>
+        <div id="tab-indicator" class="tab-indicator"></div>
     </div>
 
     <div id="contenedor-vistas">
-      <section id="captura" class="vista visible">
-          <div id="camera-wrapper">
-              <div id="camera-container">
-                  <video id="camera" autoplay playsinline></video>
-                  <div id="selection-overlay">
-                      <div id="selection-rectangle"></div>
-                  </div>
-              </div>
-              <div id="camera-instructions" class="instructions">
-                  <p>🔍 Encuadra la hora dentro del recuadro verde</p>
-                  <p>📱 Mantén el dispositivo estable y asegúrate de que la hora sea legible</p>
-              </div>
-              <div class="camera-controls">
-                  <button id="capture-btn" class="btn-primary">
-                      <span class="btn-icon">📸</span> Capturar
-                  </button>
-              </div>
-          </div>
-          <canvas id="canvas-preview" style="display:none;"></canvas>
-      </section>
+        <section id="captura" class="vista visible" role="tabpanel" aria-labelledby="tab-captura">
+            <div id="camera-container">
+                <video id="camera" autoplay playsinline></video>
+                <div id="selection-overlay">
+                    <div id="selection-rectangle"></div>
+                </div>
+            </div>
+            <div class="instructions">
+                <p>🔍 Encuadra la hora dentro del recuadro verde</p>
+                <p>📱 Mantén el dispositivo estable y asegúrate de que la hora sea legible</p>
+            </div>
+            <div class="camera-controls">
+                <button id="capture-btn" class="btn-primary" aria-label="Capturar foto">📸</button>
+            </div>
+            <canvas id="canvas-preview" style="display: none;"></canvas>
+        </section>
 
-      <section id="historial" class="vista">
-          <h2>Historial de capturas</h2>
-          <div id="history-grid"></div>
-      </section>
+        <section id="historial" class="vista" role="tabpanel" aria-labelledby="tab-historial">
+            <h2>Historial de capturas</h2>
+            <div id="history-grid"></div>
+        </section>
     </div>
 
-    <div id="status-toast" role="status" aria-live="polite"></div>
-
-    <div id="visor-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style="display: none;">
+    <div id="visor-modal">
         <div id="visor-contenido">
-            <button id="cerrar-visor" aria-label="Cerrar modal">
-                <span aria-hidden="true">&times;</span>
-            </button>
-            <h2 id="modal-title" class="visually-hidden">Detalles de la captura</h2>
+            <button id="cerrar-visor" aria-label="Cerrar visor">×</button>
             <div class="image-container">
-                <img id="visor-img" src="" alt="Captura ampliada" />
+                <img id="visor-img" alt="Captura seleccionada">
                 <div id="visor-info" class="image-info"></div>
             </div>
             <div class="modal-actions">
-                <button id="maps-btn" class="btn-primary">
-                    <span class="btn-icon">📍</span> Ver en Google Maps
-                </button>
-                <button id="descargar-img" class="btn-secondary">
-                    <span class="btn-icon">⬇️</span> Descargar
-                </button>
+                <button id="maps-btn" class="btn-primary">📍 Ver en Google Maps</button>
+                <button id="descargar-img" class="btn-secondary">⬇️ Descargar</button>
             </div>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
-    <script src="captura-db.js"></script>
-    <script src="app.js"></script>
-    <script>
-        // Registrar el Service Worker
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', async () => {
-                try {
-                    const registration = await navigator.serviceWorker.register('service-worker.js');
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                } catch (error) {
-                    console.error('ServiceWorker registration failed: ', error);
-                }
-            });
-        }
-    </script>
+    <div id="status-toast"></div>
+
+    <script src="./captura-db.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>
