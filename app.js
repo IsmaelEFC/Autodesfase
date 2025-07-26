@@ -66,35 +66,58 @@ function checkCameraSupport() {
 
 // 2. Iniciar cámara con manejo de permisos
 async function initCamera() {
-    if (!checkCameraSupport()) {
-        showMessage('Tu navegador no soporta acceso a la cámara o esta función está desactivada. Por favor usa Chrome, Firefox o Edge.', 'error');
+    // Verificar compatibilidad
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showMessage('Tu navegador no soporta la cámara o está bloqueado', 'error');
         cameraPlaceholder.innerHTML = '<p><i class="fas fa-video-slash"></i> Navegador no compatible con la cámara</p>';
         return;
     }
 
     try {
+        // Mostrar mensaje de carga
         showMessage('Solicitando acceso a la cámara...', 'loading');
         cameraPlaceholder.innerHTML = '<div class="loader"></div><p>Esperando permisos de cámara...</p>';
         
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
+        // Configuración optimizada para móviles
+        const constraints = {
+            video: {
                 facingMode: 'environment',
                 width: { ideal: 1280 },
-                height: { ideal: 720 }
+                height: { ideal: 720 },
+                frameRate: { ideal: 30 }
             },
             audio: false
-        });
-        
+        };
+
+        // Iniciar transmisión de la cámara
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
         camera.srcObject = stream;
-        camera.style.display = 'block';
-        rectangle.style.display = 'block';
-        cameraPlaceholder.style.display = 'none';
-        captureBtn.disabled = false;
         
-        showMessage('Cámara lista. Enfoca la pantalla del DVR en el rectángulo verde.', 'info');
-        
-    } catch (err) {
-        handleCameraError(err);
+        // Esperar a que la cámara esté lista (especialmente en móviles)
+        await new Promise((resolve) => {
+            camera.onloadedmetadata = () => {
+                camera.play().then(() => {
+                    camera.style.display = 'block';
+                    rectangle.style.display = 'block';
+                    cameraPlaceholder.style.display = 'none';
+                    captureBtn.disabled = false;
+                    showMessage('Cámara lista. Enfoca la pantalla del DVR en el rectángulo verde.', 'info');
+                    resolve();
+                });
+            };
+        });
+
+    } catch (error) {
+        let errorMessage = 'Error al acceder a la cámara: ';
+        if (error.name === 'NotAllowedError') {
+            errorMessage += 'Permiso denegado. Por favor habilita los permisos de cámara en la configuración de tu navegador.';
+        } else if (error.name === 'NotFoundError') {
+            errorMessage += 'No se encontró cámara trasera.';
+        } else {
+            errorMessage += error.message;
+        }
+        showMessage(errorMessage, 'error');
+        cameraPlaceholder.innerHTML = `<p><i class="fas fa-video-slash"></i> ${errorMessage}</p>`;
     }
 }
 
