@@ -176,43 +176,39 @@ async function captureAndProcess() {
         
         // Verificar que Tesseract esté cargado
         if (typeof Tesseract === 'undefined') {
-            throw new Error('Tesseract.js no se cargó correctamente. Por favor recarga la página.');
+            throw new Error('El procesador de texto no está disponible');
         }
         
-        // Crear canvas temporal
+        // Capturar imagen del área de selección
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
+        const rect = document.getElementById('selection-rectangle').getBoundingClientRect();
         
-        // Obtener dimensiones del rectángulo
-        const rect = rectangle.getBoundingClientRect();
-        const videoRect = camera.getBoundingClientRect();
+        // Aumentar resolución para mejor reconocimiento
+        const scale = 2;
+        canvas.width = rect.width * scale;
+        canvas.height = rect.height * scale;
         
-        // Calcular posición relativa
-        const scaleX = camera.videoWidth / videoRect.width;
-        const scaleY = camera.videoHeight / videoRect.height;
+        // Dibujar la región de interés con mayor resolución
+        ctx.drawImage(
+            camera,
+            rect.left, rect.top, rect.width, rect.height, // Fuente
+            0, 0, canvas.width, canvas.height            // Destino con mayor resolución
+        );
         
-        const x = (rect.left - videoRect.left) * scaleX;
-        const y = (rect.top - videoRect.top) * scaleY;
-        const width = rect.width * scaleX;
-        const height = rect.height * scaleY;
+        // Mostrar vista previa
+        resultsDiv.innerHTML = '';
+        resultsDiv.appendChild(canvas);
         
-        // Configurar canvas y dibujar la región de interés
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(camera, x, y, width, height, 0, 0, width, height);
-        
-        // Procesar OCR con Tesseract
+        // Procesar con Tesseract
         updateLoaderMessage('Analizando texto...');
         const text = await procesarImagenConOCR(canvas);
         
-        // Extraer fecha/hora del texto reconocido
-        updateLoaderMessage('Extrayendo hora...');
+        // Extraer fecha/hora
+        updateLoaderMessage('Extrayendo hora del DVR...');
         const horaDVR = extraerFechaHoraDVR(text);
-        if (!horaDVR) {
-            throw new Error("No se pudo reconocer la hora en el DVR. Asegúrate de que la hora sea visible en el rectángulo verde.");
-        }
         
-        // Obtener hora oficial de Chile
+        // Obtener hora oficial
         updateLoaderMessage('Obteniendo hora oficial...');
         const horaOficial = await obtenerHoraOficial();
         
@@ -309,89 +305,125 @@ async function procesarImagenConOCR(canvas) {
 
 // Función para extraer fecha y hora del texto OCR
 function extraerFechaHoraDVR(texto) {
-    // Limpieza mejorada del texto
-    const textoLimpio = texto.trim()
-        .replace(/[^a-z0-9:\-\/\s]/gi, '')
-        .replace(/\s+/g, ' ');
+    // Limpieza del texto conservando caracteres relevantes
+    const textoLimpio = texto.toLowerCase()
+        .replace(/[^a-z0-9:\-\/\sáéíóúü]/g, '')  // Incluye caracteres españoles
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    // Patrones prioritarios con estructura consistente
+    // Patrones para todos los formatos especificados
     const patterns = [
-        // 1. Formato especial hora:año (01:01:2023 fri 14:30:45)
+        // 1. Formatos con día de semana (jue/fri)
         {
-            name: 'formato_especial',
-            regex: /(\d{2}):(\d{2}):(\d{4})\s+[a-z]+\s+(\d{2}):(\d{2}):(\d{2})/i,
+            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/,
             parser: (match) => ({
-                dia: 0,
-                mes: 0,
-                año: parseInt(match[3]),  // Año viene del tercer grupo
-                horas: parseInt(match[4]),
-                minutos: parseInt(match[5]),
-                segundos: parseInt(match[6])
+                dia: parseInt(match[1]),
+                mes: parseInt(match[3]),
+                año: parseInt(match[4]),
+                horas: parseInt(match[5]),
+                minutos: parseInt(match[6]),
+                segundos: parseInt(match[7])
             })
         },
-        // 2. Formatos con fecha completa (dd-mm-aaaa o aaaa-mm-dd)
+        // 2. Formatos estándar sin día de semana
         {
-            name: 'fecha_completa',
-            regex: /(\d{2,4})([-\.\/])(\d{2})\2(\d{2,4})\s+(?:[a-z]+\s+)?(\d{2}):(\d{2})(?::(\d{2}))?/i,
-            parser: (match) => {
-                // Determinar si es formato dd-mm-aaaa o aaaa-mm-dd
-                const esFormatoISO = match[1].length === 4;
-                return {
-                    dia: esFormatoISO ? parseInt(match[4]) : parseInt(match[1]),
-                    mes: parseInt(match[3]),
-                    año: esFormatoISO ? parseInt(match[1]) : parseInt(match[4]),
-                    horas: parseInt(match[5]),
-                    minutos: parseInt(match[6]),
-                    segundos: match[7] ? parseInt(match[7]) : 0
-                };
-            }
-        },
-        // 3. Formatos solo hora
-        {
-            name: 'hora_con_segundos',
-            regex: /(?:^|\s)(\d{2}):(\d{2}):(\d{2})(?:\s|$)/i,
+            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
             parser: (match) => ({
-                dia: 0,
-                mes: 0,
-                año: 0,
-                horas: parseInt(match[1]),
-                minutos: parseInt(match[2]),
-                segundos: parseInt(match[3])
+                dia: parseInt(match[1]),
+                mes: parseInt(match[3]),
+                año: parseInt(match[4]),
+                horas: parseInt(match[5]),
+                minutos: parseInt(match[6]),
+                segundos: parseInt(match[7])
             })
         },
+        // 3. Formatos con año al inicio (aaaa-...)
         {
-            name: 'hora_sin_segundos',
-            regex: /(?:^|\s)(\d{2}):(\d{2})(?:\s|$)(?!\d)/i,
+            regex: /(\d{4})([-\.\/])(\d{2})\2(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
             parser: (match) => ({
-                dia: 0,
-                mes: 0,
-                año: 0,
-                horas: parseInt(match[1]),
-                minutos: parseInt(match[2]),
-                segundos: 0
+                dia: parseInt(match[4]),  // Nota: día y mes se invierten en estos formatos
+                mes: parseInt(match[3]),
+                año: parseInt(match[1]),
+                horas: parseInt(match[5]),
+                minutos: parseInt(match[6]),
+                segundos: parseInt(match[7])
             })
         }
     ];
 
-    for (const { name, regex, parser } of patterns) {
+    // Probar todos los patrones
+    for (const { regex, parser } of patterns) {
         const match = textoLimpio.match(regex);
         if (match) {
-            try {
-                const result = parser(match);
-                
-                // Validación estricta
-                if (result.horas >= 0 && result.horas < 24 && 
-                    result.minutos >= 0 && result.minutos < 60 && 
-                    result.segundos >= 0 && result.segundos < 60) {
-                    return result;
-                }
-            } catch (e) {
-                console.warn(`Error parsing with ${name} pattern:`, e);
+            const resultado = parser(match);
+            
+            // Validación estricta de fechas
+            if (validarFechaHora(resultado)) {
+                return resultado;
             }
         }
     }
     
-    return null;
+    throw new Error(`Formato no reconocido. Los formatos válidos son:
+        - dd-mm-aaaa hh:mm:ss
+        - dd/mm/aaaa hh:mm:ss
+        - aaaa-dd-mm hh:mm:ss
+        - aaaa/dd/mm hh:mm:ss
+        - aaaa-mm-dd hh:mm:ss
+        - aaaa/mm/dd hh:mm:ss
+        - Con día de semana (ej: dd-mm-aaaa jue hh:mm:ss)`);
+}
+
+// Función de validación mejorada
+function validarFechaHora({ dia, mes, año, horas, minutos, segundos }) {
+    // Validar rangos básicos
+    if (dia < 1 || dia > 31) return false;
+    if (mes < 1 || mes > 12) return false;
+    if (horas < 0 || horas > 23) return false;
+    if (minutos < 0 || minutos > 59) return false;
+    if (segundos < 0 || segundos > 59) return false;
+    
+    // Validar meses con 30 días
+    if ([4, 6, 9, 11].includes(mes) && dia > 30) return false;
+    
+    // Validar febrero (considerando años bisiestos)
+    if (mes === 2) {
+        const esBisiesto = (año % 4 === 0 && año % 100 !== 0) || año % 400 === 0;
+        if (dia > (esBisiesto ? 29 : 28)) return false;
+    }
+    
+    return true;
+}
+
+function probarTodosFormatos() {
+    const formatos = [
+        "01-01-2023 14:30:45",
+        "01/01/2023 14:30:45",
+        "2023-01-01 14:30:45",
+        "2023/01/01 14:30:45",
+        "2023-01-01 14:30:45",
+        "2023/01/01 14:30:45",
+        "01-01-2023 jue 14:30:45",
+        "01/01/2023 jue 14:30:45",
+        "01-01-2023 fri 14:30:45",
+        "01.01.2023 14:30:45",  // Variación con punto
+        "01-01-2023 mié 14:30:45"  // Con acento
+    ];
+
+    console.log("=== Prueba de todos los formatos ===");
+    formatos.forEach((formato, i) => {
+        try {
+            const resultado = extraerFechaHoraDVR(formato);
+            console.log(`✓ Formato ${i+1}: ${formato}`, resultado);
+        } catch (error) {
+            console.error(`✗ Formato ${i+1}: ${formato} - ERROR: ${error.message}`);
+        }
+    });
+}
+
+// Ejecutar al cargar en desarrollo
+if (window.location.hostname === "localhost") {
+    probarTodosFormatos();
 }
 
 function testFormats() {
@@ -665,6 +697,73 @@ function verificarDependencias() {
   return todasCargadas;
 }
 
+// Función para mejorar el contraste de la imagen
+function mejorarContraste(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // Aumentar contraste para displays de DVR
+    for (let i = 0; i < imageData.data.length; i += 4) {
+        const r = imageData.data[i];
+        const g = imageData.data[i + 1];
+        const b = imageData.data[i + 2];
+        
+        // Convertir a blanco y negro con alto contraste
+        const avg = (r + g + b) / 3;
+        const val = avg < 128 ? 0 : 255;
+        
+        imageData.data[i] = imageData.data[i + 1] = imageData.data[i + 2] = val;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+}
+
+// Función para procesar el texto del DVR
+async function procesarDVR() {
+    try {
+        // Obtener el canvas de la cámara
+        const canvas = document.createElement('canvas');
+        const video = document.querySelector('video');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Mejorar contraste para mejor reconocimiento OCR
+        mejorarContraste(canvas);
+        
+        // Procesar la imagen con OCR
+        const textoOCR = await procesarImagenConOCR(canvas);
+        console.log("Texto reconocido por OCR:", textoOCR);
+        
+        // Extraer fecha y hora
+        const fechaHora = extraerFechaHoraDVR(textoOCR);
+        console.log("Fecha/hora reconocida:", fechaHora);
+        
+        // Obtener hora oficial
+        const horaOficial = await obtenerHoraOficial();
+        
+        // Calcular diferencia
+        const diferencia = calcularDiferencia(fechaHora, horaOficial);
+        
+        // Mostrar resultados
+        mostrarResultados(fechaHora, horaOficial, diferencia, textoOCR);
+        
+    } catch (error) {
+        console.error("Error al procesar:", error);
+        document.getElementById("results").innerHTML = `
+            <div class="error">
+                <p>${error.message}</p>
+                <p>Por favor, asegúrate de que la imagen del DVR esté clara y contenga la hora.</p>
+                <button onclick="captureAndProcess()" class="retry-btn">
+                    <i class="fas fa-redo"></i> Intentar de nuevo
+                </button>
+            </div>
+        `;
+    }
+}
+
 // Función para mostrar mensajes
 function showMessage(message, type = 'info') {
     resultsDiv.className = type;
@@ -678,8 +777,33 @@ function updateLoaderMessage(message) {
     }
 }
 
+// Función para mostrar la guía del usuario
+function mostrarGuiaUsuario() {
+    const guide = `
+        <div id="capture-guide">
+            <h3>Instrucciones para mejor captura:</h3>
+            <ol>
+                <li>Acerca el dispositivo hasta que la fecha/hora del DVR ocupe el rectángulo verde</li>
+                <li>Asegúrate que se vea completo (ej: "01-01-2023 14:30:45")</li>
+                <li>Mantén el dispositivo estable al capturar</li>
+            </ol>
+            <img src="ejemplo-correcto.jpg" alt="Ejemplo de posición correcta">
+            <button onclick="document.getElementById('instructions').innerHTML = ''" class="help-btn" style="margin-top: 15px;">
+                <i class="fas fa-times"></i> Cerrar
+            </button>
+        </div>
+    `;
+    document.getElementById('instructions').innerHTML = guide;
+}
+
 // Inicialización
 document.addEventListener('DOMContentLoaded', () => {
+    // Configurar botón de ayuda
+    const helpBtn = document.getElementById('help-btn');
+    if (helpBtn) {
+        helpBtn.addEventListener('click', mostrarGuiaUsuario);
+    }
+    
     // Verificar dependencias antes de continuar
     if (!verificarDependencias()) {
         showMessage('Algunas funciones podrían no estar disponibles. Por favor recarga la página.', 'warning');
