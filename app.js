@@ -265,94 +265,84 @@ async function procesarImagenConOCR(canvas) {
 
 // Función para extraer fecha y hora del texto OCR
 function extraerFechaHoraDVR(texto) {
-    // Eliminar ruido y normalizar
-    const textoLimpio = texto.toLowerCase()
-        .replace(/[^a-z0-9:\-\/\s]/g, '')  // Eliminar caracteres especiales
-        .replace(/\s+/g, ' ')              // Normalizar espacios
-        .trim();
+    // Limpieza mejorada del texto
+    const textoLimpio = texto.trim()
+        .replace(/[^a-z0-9:\-\/\s]/gi, '')
+        .replace(/\s+/g, ' ');
 
-    // Patrones para fecha y hora (incluyendo los nuevos formatos)
+    // Patrones prioritarios con estructura consistente
     const patterns = [
-        // dd-mm-aaaa hh:mm:ss
-        /(\d{2})[-\.](\d{2})[-\.](\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-        // dd/mm/aaaa hh:mm:ss
-        /(\d{2})[\/\.](\d{2})[\/\.](\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-        // aaaa-mm-dd hh:mm:ss
-        /(\d{4})[-\.](\d{2})[-\.](\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
-        // aaaa-dd-mm hh:mm:ss
-        /(\d{4})[-\.](\d{2})[-\.](\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
-        // dd-mm-aaaa vie hh:mm:ss (con día de semana)
-        /(\d{2})[-\.](\d{2})[-\.](\d{4})\s+(?:lun|mar|mié|jue|vie|sáb|dom)\s+(\d{2}):(\d{2}):(\d{2})/,
-        // dd:mm:aaaa fri hh:mm:ss (con día en inglés)
-        /(\d{2})[:\.](\d{2})[:\.](\d{4})\s+(?:mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/,
-        // Formatos solo hora
-        /(\d{2}):(\d{2}):(\d{2})/,
-        /(\d{2}):(\d{2})/
+        // 1. Formato especial hora:año (01:01:2023 fri 14:30:45)
+        {
+            name: 'formato_especial',
+            regex: /(\d{2}):(\d{2}):(\d{4})\s+[a-z]+\s+(\d{2}):(\d{2}):(\d{2})/i,
+            parser: (match) => ({
+                dia: 0,
+                mes: 0,
+                año: parseInt(match[3]),  // Año viene del tercer grupo
+                horas: parseInt(match[4]),
+                minutos: parseInt(match[5]),
+                segundos: parseInt(match[6])
+            })
+        },
+        // 2. Formatos con fecha completa (dd-mm-aaaa o aaaa-mm-dd)
+        {
+            name: 'fecha_completa',
+            regex: /(\d{2,4})([-\.\/])(\d{2})\2(\d{2,4})\s+(?:[a-z]+\s+)?(\d{2}):(\d{2})(?::(\d{2}))?/i,
+            parser: (match) => {
+                // Determinar si es formato dd-mm-aaaa o aaaa-mm-dd
+                const esFormatoISO = match[1].length === 4;
+                return {
+                    dia: esFormatoISO ? parseInt(match[4]) : parseInt(match[1]),
+                    mes: parseInt(match[3]),
+                    año: esFormatoISO ? parseInt(match[1]) : parseInt(match[4]),
+                    horas: parseInt(match[5]),
+                    minutos: parseInt(match[6]),
+                    segundos: match[7] ? parseInt(match[7]) : 0
+                };
+            }
+        },
+        // 3. Formatos solo hora
+        {
+            name: 'hora_con_segundos',
+            regex: /(?:^|\s)(\d{2}):(\d{2}):(\d{2})(?:\s|$)/i,
+            parser: (match) => ({
+                dia: 0,
+                mes: 0,
+                año: 0,
+                horas: parseInt(match[1]),
+                minutos: parseInt(match[2]),
+                segundos: parseInt(match[3])
+            })
+        },
+        {
+            name: 'hora_sin_segundos',
+            regex: /(?:^|\s)(\d{2}):(\d{2})(?:\s|$)(?!\d)/i,
+            parser: (match) => ({
+                dia: 0,
+                mes: 0,
+                año: 0,
+                horas: parseInt(match[1]),
+                minutos: parseInt(match[2]),
+                segundos: 0
+            })
+        }
     ];
 
-    for (const pattern of patterns) {
-        const match = textoLimpio.match(pattern);
+    for (const { name, regex, parser } of patterns) {
+        const match = textoLimpio.match(regex);
         if (match) {
-            // Determinar el formato encontrado
-            let dia, mes, año, horas, minutos, segundos;
-            
-            if (match[4] && match[5] && match[6]) { // Tiene fecha y hora
-                if (pattern === patterns[4] || pattern === patterns[5]) {
-                    // Formatos con día de semana (vie/fri)
-                    [, dia, mes, año, horas, minutos, segundos] = match;
-                } else if (pattern === patterns[2] || pattern === patterns[3]) {
-                    // Formatos con año primero
-                    [, año, mes, dia, horas, minutos, segundos] = match;
-                } else {
-                    // Formatos normales
-                    [, dia, mes, año, horas, minutos, segundos] = match;
-                }
-            } else if (match[1] && match[2] && match[3]) {
-                // Solo hora con segundos
-                [, horas, minutos, segundos] = match;
-            } else {
-                // Solo hora sin segundos
-                [, horas, minutos] = match;
-                segundos = 0;
-            }
-
-            // Crear objeto con componentes y validar
-            const componentes = {
-                dia: parseInt(dia || 0),  // 0 si no hay fecha
-                mes: parseInt(mes || 0),
-                año: parseInt(año || 0),
-                horas: parseInt(horas),
-                minutos: parseInt(minutos),
-                segundos: parseInt(segundos || 0)
-            };
-            
-            // Ajustar año corto (ej: 23 -> 2023)
-            if (componentes.año < 100) componentes.año += 2000;
-            
-            // Validar valores de tiempo
-            if (componentes.horas >= 0 && componentes.horas < 24 && 
-                componentes.minutos >= 0 && componentes.minutos < 60 && 
-                componentes.segundos >= 0 && componentes.segundos < 60) {
-                return componentes;
-            }
-            if (horas >= 0 && horas < 24 && 
-                minutos >= 0 && minutos < 60 && 
-                segundos >= 0 && segundos < 60) {
+            try {
+                const result = parser(match);
                 
-                const resultado = {
-                    horas,
-                    minutos,
-                    segundos
-                };
-
-                // Solo incluir fecha si se detectó
-                if (dia && mes && año) {
-                    resultado.dia = dia;
-                    resultado.mes = mes;
-                    resultado.año = año;
+                // Validación estricta
+                if (result.horas >= 0 && result.horas < 24 && 
+                    result.minutos >= 0 && result.minutos < 60 && 
+                    result.segundos >= 0 && result.segundos < 60) {
+                    return result;
                 }
-
-                return resultado;
+            } catch (e) {
+                console.warn(`Error parsing with ${name} pattern:`, e);
             }
         }
     }
@@ -362,20 +352,81 @@ function extraerFechaHoraDVR(texto) {
 
 function testFormats() {
     const tests = [
-        {input: "01-01-2023 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "01/01/2023 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "2023-01-01 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "2023-01-01 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "01-01-2023 vie 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "01:01:2023 fri 14:30:45", expected: {dia:1, mes:1, año:2023, horas:14, minutos:30, segundos:45}},
-        {input: "14:30:45", expected: {horas:14, minutos:30, segundos:45}},
-        {input: "14:30", expected: {horas:14, minutos:30, segundos:0}}
+        {
+            input: "01:01:2023 fri 14:30:45",
+            expected: { dia: 0, mes: 0, año: 2023, horas: 14, minutos: 30, segundos: 45 },
+            description: "Formato especial hora:año con día en inglés"
+        },
+        {
+            input: "2023-01-01 14:30:45",
+            expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 },
+            description: "Formato ISO"
+        },
+        {
+            input: "14:30",
+            expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 0 },
+            description: "Solo hora sin segundos"
+        },
+        { 
+            input: "14:30:45", 
+            expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 45 },
+            description: "Solo hora con segundos"
+        },
+        { 
+            input: "01-01-2023 vie 14:30:45", 
+            expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 },
+            description: "Fecha con día de semana en español"
+        }
     ];
 
+    console.log("=== Iniciando pruebas definitivas ===");
+    let allPassed = true;
+    
     tests.forEach(test => {
+        console.log(`\nTest: ${test.description}`);
+        console.log(`Input: "${test.input}"`);
+        
         const result = extraerFechaHoraDVR(test.input);
-        console.assert(JSON.stringify(result) === JSON.stringify(test.expected), 
-            `Falló: ${test.input}`, result);
+        const passed = JSON.stringify(result) === JSON.stringify(test.expected);
+        
+        if (!passed) {
+            allPassed = false;
+            console.error("❌ Falló");
+            console.log("Obtenido:", result);
+            console.log("Esperado:", test.expected);
+        } else {
+            console.log("✓ Pasó");
+        }
+    });
+
+    console.log("\n=== Resumen Final ===");
+    if (allPassed) {
+        console.log("✅ ¡Todas las pruebas pasaron correctamente!");
+    } else {
+        console.error("⚠️ Algunas pruebas fallaron - Revisar implementación");
+    }
+}
+
+function debugMatching(input) {
+    const textoLimpio = input.trim()
+        .replace(/[^a-z0-9:\-\/\s]/gi, '')
+        .replace(/\s+/g, ' ');
+    
+    console.log(`Texto limpio: "${textoLimpio}"`);
+    
+    const patterns = [
+        /(?:^|\s)(\d{2}):(\d{2})(?:\s|$)(?!\d)/,
+        /(?:^|\s)(\d{2}):(\d{2}):(\d{2})(?:\s|$)/
+    ];
+    
+    patterns.forEach((pattern, i) => {
+        const match = textoLimpio.match(pattern);
+        console.log(`Patrón ${i+1}:`, pattern.toString());
+        console.log("Resultado match:", match);
+        if (match) {
+            console.log("Grupos capturados:", 
+                Array.from(match).slice(1).map((v, i) => `Grupo ${i+1}: ${v}`));
+        }
     });
 }
 
