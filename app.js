@@ -1,9 +1,6 @@
-// Configuración global de Tesseract
-Tesseract.initialize({
-  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-  langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js-data@4',
-  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
-});
+// Configuración global de Tesseract v4
+Tesseract.setWorkerPath('https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js');
+Tesseract.setLangPath('https://cdn.jsdelivr.net/npm/tesseract.js-data@4');
 
 // Servidores de tiempo alternativos
 const TIME_SERVERS = [
@@ -286,19 +283,27 @@ async function procesarImagenConOCR(canvas) {
     ctx.putImageData(imageData, 0, 0);
     
     // Ejecutar OCR con configuración optimizada
+    console.log('Iniciando reconocimiento OCR...');
     const { data: { text } } = await Tesseract.recognize(
       canvas,
-      'eng+spa',
-      {
-        logger: m => console.log(m),
-        tessedit_char_whitelist: '0123456789:-/. ',
-        preserve_interword_spaces: '1'
+      'eng+spa', // Idiomas a usar
+      { 
+        logger: m => console.log(m.status || m), // Log del progreso
+        tessedit_char_whitelist: '0123456789:-/. ', // Caracteres esperados
+        preserve_interword_spaces: '1',
+        dpi: 300 // Aumentar resolución para mejor reconocimiento
       }
     );
-    return text;
+    
+    console.log('Texto reconocido:', text);
+    if (!text || text.trim().length === 0) {
+      throw new Error('No se detectó texto en la imagen');
+    }
+    
+    return text.trim();
   } catch (error) {
     console.error('Error en OCR:', error);
-    throw new Error('Error al procesar la imagen con OCR');
+    throw new Error('Error al procesar la imagen. Por favor intenta nuevamente.');
   }
 }
 
@@ -634,17 +639,28 @@ function verificarDependencias() {
 
   let todasCargadas = true;
   
-  dependencias.forEach(dep => {
+  // Verificar Tesseract primero con manejo detallado
+  if (typeof Tesseract === 'undefined') {
+    todasCargadas = false;
+    console.error('Error crítico: Tesseract.js no se cargó correctamente');
+    showMessage(
+      `Error: No se pudo cargar el procesador de texto. Por favor recarga la página.\n` +
+      `Si el problema persiste, verifica tu conexión a internet.`,
+      'error'
+    );
+    return false;
+  }
+  
+  console.log('Tesseract cargado correctamente, versión:', Tesseract.version);
+
+  // Verificar otras dependencias
+  const otrasDependencias = dependencias.filter(dep => dep !== 'Tesseract');
+  otrasDependencias.forEach(dep => {
     if (!window[dep]) {
       todasCargadas = false;
-      console.error(`Falta dependencia: ${dep}`);
-      showMessage(`Error: El navegador no soporta ${dep} o no se cargó`, 'error');
+      console.warn(`Advertencia: Falta dependencia: ${dep}`);
     }
   });
-
-  if (typeof Tesseract !== 'undefined') {
-    console.log('Versión de Tesseract:', Tesseract.version);
-  }
   
   return todasCargadas;
 }
