@@ -631,6 +631,18 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Mostrar historial al cargar
     mostrarHistorial();
+    
+    // Registrar Service Worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(registration => {
+                    console.log('SW registrado:', registration.scope);
+                    registration.update(); // Forzar actualización
+                })
+                .catch(err => console.error('Error SW:', err));
+        });
+    }
 });
 
 // Hacer funciones disponibles globalmente para los botones HTML
