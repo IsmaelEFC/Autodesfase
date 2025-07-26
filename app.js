@@ -1,14 +1,9 @@
-// Configuración optimizada de Tesseract
-const TESSERACT_CONFIG = {
-    lang: 'eng+spa',
-    oem: 1,  // OCR Engine Mode: LSTM only
-    psm: 7,  // Page Segmentation Mode: Treat image as single text line
-    tessedit_char_whitelist: '0123456789:-/. ',
-    preserve_interword_spaces: '1',
-    tessedit_ocr_engine_mode: '1',
-    tessedit_pageseg_mode: '7',
-    user_defined_dpi: '300'
-};
+// Configuración global de Tesseract
+Tesseract.initialize({
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+  langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js-data@4',
+  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
+});
 
 // Servidores de tiempo alternativos
 const TIME_SERVERS = [
@@ -168,6 +163,11 @@ async function captureAndProcess() {
         
         captureBtn.disabled = true;
         
+        // Verificar que Tesseract esté cargado
+        if (typeof Tesseract === 'undefined') {
+            throw new Error('Tesseract.js no se cargó correctamente. Por favor recarga la página.');
+        }
+        
         // Crear canvas temporal
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
@@ -212,8 +212,15 @@ async function captureAndProcess() {
         mostrarResultados(horaDVR, horaOficial, diferencia, text);
         
     } catch (error) {
-        showMessage('Error: ' + error.message, 'error');
         console.error('Error en captureAndProcess:', error);
+        showMessage(`Error: ${error.message}`, 'error');
+        
+        // Reintentar automáticamente después de un segundo
+        setTimeout(() => {
+            if (confirm('Hubo un error al procesar. ¿Quieres intentarlo nuevamente?')) {
+                captureAndProcess();
+            }
+        }, 1000);
     } finally {
         isProcessing = false;
         captureBtn.disabled = false;
@@ -265,6 +272,7 @@ async function obtenerHoraOficial() {
 
 // Función optimizada de procesamiento OCR
 async function procesarImagenConOCR(canvas) {
+  try {
     // Preprocesamiento de imagen para mejorar OCR
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -279,11 +287,19 @@ async function procesarImagenConOCR(canvas) {
     
     // Ejecutar OCR con configuración optimizada
     const { data: { text } } = await Tesseract.recognize(
-        canvas,
-        TESSERACT_CONFIG
+      canvas,
+      'eng+spa',
+      {
+        logger: m => console.log(m),
+        tessedit_char_whitelist: '0123456789:-/. ',
+        preserve_interword_spaces: '1'
+      }
     );
-    
     return text;
+  } catch (error) {
+    console.error('Error en OCR:', error);
+    throw new Error('Error al procesar la imagen con OCR');
+  }
 }
 
 // Función para extraer fecha y hora del texto OCR
@@ -607,6 +623,32 @@ function copyToClipboard(text) {
     document.body.removeChild(textarea);
 }
 
+// Verificar dependencias al cargar
+function verificarDependencias() {
+  const dependencias = [
+    'Tesseract',
+    'caches',
+    'serviceWorker',
+    'mediaDevices'
+  ];
+
+  let todasCargadas = true;
+  
+  dependencias.forEach(dep => {
+    if (!window[dep]) {
+      todasCargadas = false;
+      console.error(`Falta dependencia: ${dep}`);
+      showMessage(`Error: El navegador no soporta ${dep} o no se cargó`, 'error');
+    }
+  });
+
+  if (typeof Tesseract !== 'undefined') {
+    console.log('Versión de Tesseract:', Tesseract.version);
+  }
+  
+  return todasCargadas;
+}
+
 // Función para mostrar mensajes
 function showMessage(message, type = 'info') {
     resultsDiv.className = type;
@@ -622,6 +664,11 @@ function updateLoaderMessage(message) {
 
 // Inicialización
 document.addEventListener('DOMContentLoaded', () => {
+    // Verificar dependencias antes de continuar
+    if (!verificarDependencias()) {
+        showMessage('Algunas funciones podrían no estar disponibles. Por favor recarga la página.', 'warning');
+    }
+    
     initCamera();
     captureBtn.addEventListener('click', captureAndProcess);
     document.getElementById('clear-history').addEventListener('click', () => {
