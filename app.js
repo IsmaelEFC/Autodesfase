@@ -316,18 +316,25 @@ function extraerFechaHoraDVR(texto) {
                 segundos = 0;
             }
 
-            // Validar valores
-            dia = parseInt(dia || 0);
-            mes = parseInt(mes || 0);
-            año = parseInt(año || 0);
-            horas = parseInt(horas);
-            minutos = parseInt(minutos);
-            segundos = parseInt(segundos || 0);
-
+            // Crear objeto con componentes y validar
+            const componentes = {
+                dia: parseInt(dia || 0),  // 0 si no hay fecha
+                mes: parseInt(mes || 0),
+                año: parseInt(año || 0),
+                horas: parseInt(horas),
+                minutos: parseInt(minutos),
+                segundos: parseInt(segundos || 0)
+            };
+            
             // Ajustar año corto (ej: 23 -> 2023)
-            if (año < 100) año += 2000;
-
-            // Validación básica
+            if (componentes.año < 100) componentes.año += 2000;
+            
+            // Validar valores de tiempo
+            if (componentes.horas >= 0 && componentes.horas < 24 && 
+                componentes.minutos >= 0 && componentes.minutos < 60 && 
+                componentes.segundos >= 0 && componentes.segundos < 60) {
+                return componentes;
+            }
             if (horas >= 0 && horas < 24 && 
                 minutos >= 0 && minutos < 60 && 
                 segundos >= 0 && segundos < 60) {

@@ -24,7 +24,7 @@ Aplicación PWA para verificar la sincronización horaria de sistemas DVR median
 4. Selecciona la rama `main` y la carpeta `/ (root)`
 5. Guarda los cambios
 
-La aplicación estará disponible en: `https://ismaelefc.github.io/Autodesfase/`
+La aplicación estará disponible en: `https://[tu-usuario].github.io/[nombre-repositorio]/`
 
 ## Instalación como PWA
 
