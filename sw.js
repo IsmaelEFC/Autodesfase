@@ -1,11 +1,11 @@
-const CACHE_NAME = 'dvr-checker-v4';
+const CACHE_NAME = 'dvr-checker-final';
 const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './app.js',
-  './manifest.json',
-  './icons/icon-192x192.png',
-  './icons/icon-512x512.png',
+  '/Dvr_Time_Checker/',  // Ruta base para GitHub Pages
+  '/Dvr_Time_Checker/index.html',
+  '/Dvr_Time_Checker/app.js',
+  '/Dvr_Time_Checker/manifest.json',
+  '/Dvr_Time_Checker/icons/icon-192x192.png',
+  '/Dvr_Time_Checker/icons/icon-512x512.png',
   'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js',
   'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
   'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',

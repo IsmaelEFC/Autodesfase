@@ -16,6 +16,7 @@
             --error-color: #f44336;
             --success-color: #4CAF50;
             --warning-color: #ff9800;
+            --button-hover: #45a049;
         }
         
         body {
@@ -152,6 +153,25 @@
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 4px;
+        }
+        
+        .retry-btn {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        .retry-btn:hover {
+            background-color: var(--button-hover);
         }
         
         .retry-btn {

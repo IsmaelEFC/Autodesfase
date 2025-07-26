@@ -1,6 +1,20 @@
-// Configuración global de Tesseract v4
-Tesseract.setWorkerPath('https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js');
-Tesseract.setLangPath('https://cdn.jsdelivr.net/npm/tesseract.js-data@4');
+
+// Verificar que Tesseract esté cargado
+if (typeof Tesseract === 'undefined' || !Tesseract.recognize) {
+  console.error('Tesseract no se cargó correctamente');
+  document.addEventListener('DOMContentLoaded', () => {
+    const resultsDiv = document.getElementById('results') || document.body;
+    resultsDiv.innerHTML = `
+      <div class="error">
+        Error: El procesador de texto no está disponible. Recarga la página.
+        <button onclick="window.location.reload()" class="retry-btn">Reintentar</button>
+      </div>
+    `;
+  });
+  throw new Error('Tesseract.js no disponible');
+}
+
+console.log('Tesseract cargado correctamente, versión:', Tesseract.version);
 
 // Servidores de tiempo alternativos
 const TIME_SERVERS = [
@@ -270,28 +284,14 @@ async function obtenerHoraOficial() {
 // Función optimizada de procesamiento OCR
 async function procesarImagenConOCR(canvas) {
   try {
-    // Preprocesamiento de imagen para mejorar OCR
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    
-    // Aumentar contraste
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        data[i] = data[i + 1] = data[i + 2] = avg < 128 ? 0 : 255;
-    }
-    ctx.putImageData(imageData, 0, 0);
-    
-    // Ejecutar OCR con configuración optimizada
     console.log('Iniciando reconocimiento OCR...');
     const { data: { text } } = await Tesseract.recognize(
       canvas,
-      'eng+spa', // Idiomas a usar
+      'eng+spa', // Idiomas
       { 
-        logger: m => console.log(m.status || m), // Log del progreso
-        tessedit_char_whitelist: '0123456789:-/. ', // Caracteres esperados
-        preserve_interword_spaces: '1',
-        dpi: 300 // Aumentar resolución para mejor reconocimiento
+        logger: m => console.log(m), // Opcional para depuración
+        tessedit_char_whitelist: '0123456789:-/. ',
+        preserve_interword_spaces: '1'
       }
     );
     
@@ -303,7 +303,7 @@ async function procesarImagenConOCR(canvas) {
     return text.trim();
   } catch (error) {
     console.error('Error en OCR:', error);
-    throw new Error('Error al procesar la imagen. Por favor intenta nuevamente.');
+    throw new Error('Error al procesar la imagen. Intenta nuevamente.');
   }
 }
 
