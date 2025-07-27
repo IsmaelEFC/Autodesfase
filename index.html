@@ -9,36 +9,44 @@
     <title>Verificador Horario DVR</title>
     <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Carga de Tesseract con verificación explícita -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+    <!-- Carga de Tesseract garantizada -->
     <script>
-      // Verificación explícita de Tesseract
-      function checkTesseract() {
-        if (!window.Tesseract) {
-          console.error("Tesseract no se cargó");
-          const resultsDiv = document.getElementById("results");
-          if (resultsDiv) {
-            resultsDiv.innerHTML = `
+      window.loadTesseract = new Promise(resolve => {
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/tesseract.js@4.1.1/dist/tesseract.min.js';
+        script.onload = () => {
+          console.log('Tesseract cargado, versión:', Tesseract.version);
+          resolve();
+        };
+        script.onerror = () => {
+          console.error('Error cargando Tesseract');
+          const placeholder = document.getElementById('camera-placeholder');
+          if (placeholder) {
+            placeholder.innerHTML = `
               <div class="error">
-                <p>Error: El motor OCR no está disponible.</p>
+                <p>Error crítico: No se pudo cargar el motor OCR.</p>
                 <button onclick="window.location.reload()" class="retry-btn">
                   <i class="fas fa-redo"></i> Reintentar
                 </button>
               </div>`;
           } else {
-            console.error("No se encontró el elemento 'results'");
+            console.error('No se encontró el elemento camera-placeholder');
           }
-          return false;
-        }
-        console.log("Tesseract listo, versión:", Tesseract.version);
-        return true;
-      }
+        };
+        document.head.appendChild(script);
+      });
 
-      document.addEventListener("DOMContentLoaded", () => {
-        if (checkTesseract() && window.initApp) {
-          initApp();
-        } else if (!window.initApp) {
-          console.error("La función initApp no está definida");
+      // Inicializar la aplicación una vez que Tesseract esté listo
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          await window.loadTesseract;
+          if (window.initApp) {
+            initApp();
+          } else {
+            console.error('La función initApp no está definida');
+          }
+        } catch (error) {
+          console.error('Error al cargar Tesseract:', error);
         }
       });
     </script>

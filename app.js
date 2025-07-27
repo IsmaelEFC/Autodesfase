@@ -206,96 +206,159 @@ let isProcessing = false;
 const dvrHistory = new DVRHistory();
 let currentResult = null;
 
-// 1. Verificar compatibilidad con la cámara
 function checkCameraSupport() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-// 2. Iniciar cámara con manejo de permisos
+// 2. Iniciar cámara con manejo de permisos mejorado
 async function initCamera() {
     // Verificar compatibilidad
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showMessage('Tu navegador no soporta la cámara o está bloqueado', 'error');
-        cameraPlaceholder.innerHTML = '<p><i class="fas fa-video-slash"></i> Navegador no compatible con la cámara</p>';
+        const msg = 'Tu navegador no soporta la cámara o está bloqueado';
+        showMessage(msg, 'error');
+        cameraPlaceholder.innerHTML = `
+            <div class="camera-error">
+                <i class="fas fa-video-slash fa-2x"></i>
+                <p>${msg}</p>
+                <p class="small">Prueba con un navegador más reciente o verifica los permisos.</p>
+            </div>`;
         return;
     }
 
+    // Mostrar mensaje de carga
+    const loadingMsg = 'Solicitando acceso a la cámara...';
+    showMessage(loadingMsg, 'loading');
+    
+    // Configurar placeholder con indicador de carga
+    cameraPlaceholder.innerHTML = `
+        <div class="camera-loading">
+            <div class="loader"></div>
+            <p>${loadingMsg}</p>
+            <p class="small">Por favor, espera mientras configuramos la cámara.</p>
+        </div>`;
+
     try {
-        // Mostrar mensaje de carga
-        showMessage('Solicitando acceso a la cámara...', 'loading');
-        cameraPlaceholder.innerHTML = '<div class="loader"></div><p>Esperando permisos de cámara...</p>';
-        
-        // Configuración optimizada para móviles
+        // Configurar opciones de la cámara con manejo para móviles
         const constraints = {
             video: {
                 facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 30 }
+                width: { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
+                frameRate: { ideal: 30, min: 15 },
+                aspectRatio: { ideal: 1.777 } // 16:9
             },
             audio: false
         };
 
-        // Iniciar transmisión de la cámara
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        // Timeout para la inicialización de la cámara (5 segundos)
+        const initTimeout = 5000;
+        const initPromise = navigator.mediaDevices.getUserMedia(constraints);
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Tiempo de espera agotado')), initTimeout)
+        );
+
+        // Esperar a que la cámara esté lista o se agote el tiempo
+        const stream = await Promise.race([initPromise, timeoutPromise]);
+        
+        // Configurar el elemento de video
         camera.srcObject = stream;
         
-        // Esperar a que la cámara esté lista (especialmente en móviles)
-        await new Promise((resolve) => {
-            camera.onloadedmetadata = () => {
+        // Esperar a que el video esté listo para reproducir
+        await new Promise((resolve, reject) => {
+            const onLoaded = () => {
                 camera.play().then(() => {
+                    // Mostrar el video y el rectángulo de selección
                     camera.style.display = 'block';
                     rectangle.style.display = 'block';
                     cameraPlaceholder.style.display = 'none';
                     captureBtn.disabled = false;
                     showMessage('Cámara lista. Enfoca la pantalla del DVR en el rectángulo verde.', 'info');
                     resolve();
-                });
+                }).catch(reject);
+            };
+            
+            if (camera.readyState >= 3) { // HAVE_FUTURE_DATA o mayor
+                onLoaded();
+            } else {
+                camera.onloadeddata = onLoaded;
+            }
+            
+            // Manejar errores de reproducción
+            camera.onerror = () => {
+                reject(new Error('No se pudo reproducir el video de la cámara'));
             };
         });
-
+        
     } catch (error) {
-        let errorMessage = 'Error al acceder a la cámara: ';
-        if (error.name === 'NotAllowedError') {
-            errorMessage += 'Permiso denegado. Por favor habilita los permisos de cámara en la configuración de tu navegador.';
-        } else if (error.name === 'NotFoundError') {
-            errorMessage += 'No se encontró cámara trasera.';
-        } else {
-            errorMessage += error.message;
-        }
-        showMessage(errorMessage, 'error');
-        cameraPlaceholder.innerHTML = `<p><i class="fas fa-video-slash"></i> ${errorMessage}</p>`;
+        handleCameraError(error);
     }
 }
 
-// 3. Manejo de errores de cámara
+// 3. Manejo mejorado de errores de cámara
 function handleCameraError(err) {
     console.error('Error en la cámara:', err);
     captureBtn.disabled = true;
     
+    let errorTitle = 'Error en la cámara';
+    let errorMessage = 'No se pudo acceder a la cámara.';
+    let errorDetails = '';
+    let showRetry = true;
+    
+    // Determinar el tipo de error y mensaje apropiado
     if (err.name === 'NotAllowedError') {
-        cameraPlaceholder.innerHTML = `
-            <div class="permission-denied">
-                <p><strong><i class="fas fa-ban"></i> Permiso denegado:</strong> Has bloqueado el acceso a la cámara.</p>
-                <p>Para usar esta aplicación, por favor:</p>
-                <ol>
-                    <li>Haz clic en el ícono de candado en la barra de direcciones</li>
-                    <li>Selecciona "Configuración de sitios"</li>
-                    <li>Habilita los permisos de cámara</li>
-                    <li>Actualiza la página</li>
-                </ol>
-                <button class="retry-btn" onclick="window.location.reload()">
-                    <i class="fas fa-sync-alt"></i> Reintentar
-                </button>
-            </div>
+        errorTitle = 'Permiso denegado';
+        errorMessage = 'Has bloqueado el acceso a la cámara.';
+        errorDetails = `
+            <p>Para usar esta aplicación, sigue estos pasos:</p>
+            <ol class="error-steps">
+                <li>Haz clic en el ícono de candado en la barra de direcciones</li>
+                <li>Selecciona "Configuración de sitios" o "Permisos"</li>
+                <li>Habilita los permisos de cámara</li>
+                <li>Actualiza la página</li>
+            </ol>
         `;
-        showMessage('Permiso de cámara denegado. Por favor habilita los permisos y recarga la página.', 'error');
-    } else if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
-        cameraPlaceholder.innerHTML = '<p><i class="fas fa-camera"></i> No se encontró cámara trasera o no cumple los requisitos.</p>';
-        showMessage('Error: No se pudo acceder a la cámara trasera.', 'error');
+    } else if (err.name === 'NotFoundError') {
+        errorTitle = 'Cámara no encontrada';
+        errorMessage = 'No se pudo encontrar una cámara trasera.';
+        errorDetails = 'Verifica que tu dispositivo tenga una cámara trasera funcional.';
+    } else if (err.name === 'NotReadableError') {
+        errorTitle = 'Error de hardware';
+        errorMessage = 'No se puede acceder a la cámara.';
+        errorDetails = 'Otra aplicación podría estar usando la cámara o hay un problema con el hardware.';
+    } else if (err.name === 'OverconstrainedError') {
+        errorTitle = 'Configuración no soportada';
+        errorMessage = 'La cámara no cumple con los requisitos necesarios.';
+        errorDetails = 'Intenta con una cámara con mayor resolución o mejor calidad.';
+    } else if (err.message.includes('Tiempo de espera')) {
+        errorTitle = 'Tiempo de espera agotado';
+        errorMessage = 'La cámara tardó demasiado en responder.';
+        errorDetails = 'Verifica que la cámara no esté siendo usada por otra aplicación.';
     } else {
-        cameraPlaceholder.innerHTML = '<p><i class="fas fa-exclamation-triangle"></i> Error al inicializar la cámara.</p>';
-        showMessage('Error al acceder a la cámara: ' + err.message, 'error');
+        errorDetails = `Detalles: ${err.message || 'Error desconocido'}`;
+    }
+    
+    // Mostrar mensaje de error en la UI
+    showMessage(`Error: ${errorTitle} - ${errorMessage}`, 'error');
+    
+    // Actualizar el placeholder con el error
+    cameraPlaceholder.innerHTML = `
+        <div class="camera-error">
+            <i class="fas fa-exclamation-triangle fa-2x"></i>
+            <h3>${errorTitle}</h3>
+            <p>${errorMessage}</p>
+            ${errorDetails ? `<div class="error-details">${errorDetails}</div>` : ''}
+            ${showRetry ? `
+                <button onclick="initCamera()" class="retry-btn">
+                    <i class="fas fa-redo"></i> Reintentar
+                </button>
+            ` : ''}
+        </div>
+    `;
+    
+    // Detener cualquier stream activo
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
     }
 }
 
@@ -969,8 +1032,6 @@ function testFechaCompleta() {
     });
     
     console.log(`=== Pruebas completadas: ${exitosas}/${tests.length} exitosas ===`);
-    return exitosas === tests.length;
-}
 }
 
 // Función para mostrar la guía del usuario
@@ -1077,4 +1138,6 @@ document.addEventListener('DOMContentLoaded', () => {
 // Hacer funciones disponibles globalmente para los botones HTML
 window.shareViaWhatsApp = shareViaWhatsApp;
 window.shareViaEmail = shareViaEmail;
+// Make shareResult globally available
 window.shareResult = shareResult;
+}}
