@@ -9,39 +9,38 @@
     <title>Verificador Horario DVR</title>
     <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Carga de Tesseract con verificación explícita -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
     <script>
-      // Carga garantizada de Tesseract
-      (function() {
-        const tesseractSrc = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
-        const tesseractCheck = setInterval(() => {
-          if (window.Tesseract) {
-            clearInterval(tesseractCheck);
-            console.log('Tesseract cargado, versión:', Tesseract.version);
-            if (window.initApp) {
-              window.initApp();
-            }
+      // Verificación explícita de Tesseract
+      function checkTesseract() {
+        if (!window.Tesseract) {
+          console.error("Tesseract no se cargó");
+          const resultsDiv = document.getElementById("results");
+          if (resultsDiv) {
+            resultsDiv.innerHTML = `
+              <div class="error">
+                <p>Error: El motor OCR no está disponible.</p>
+                <button onclick="window.location.reload()" class="retry-btn">
+                  <i class="fas fa-redo"></i> Reintentar
+                </button>
+              </div>`;
+          } else {
+            console.error("No se encontró el elemento 'results'");
           }
-        }, 100);
+          return false;
+        }
+        console.log("Tesseract listo, versión:", Tesseract.version);
+        return true;
+      }
 
-        const script = document.createElement('script');
-        script.src = tesseractSrc;
-        script.onerror = () => {
-          clearInterval(tesseractCheck);
-          console.error('Error cargando Tesseract');
-          const errorDiv = document.createElement('div');
-          errorDiv.className = 'error';
-          errorDiv.innerHTML = `
-            <p>Error crítico: No se pudo cargar el motor OCR.</p>
-            <button onclick="window.location.reload()" class="retry-btn">
-              <i class="fas fa-redo"></i> Reintentar
-            </button>
-          `;
-          const placeholder = document.getElementById('camera-placeholder') || document.body;
-          placeholder.innerHTML = '';
-          placeholder.appendChild(errorDiv);
-        };
-        document.head.appendChild(script);
-      })();
+      document.addEventListener("DOMContentLoaded", () => {
+        if (checkTesseract() && window.initApp) {
+          initApp();
+        } else if (!window.initApp) {
+          console.error("La función initApp no está definida");
+        }
+      });
     </script>
     <style>
         :root {

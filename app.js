@@ -971,6 +971,7 @@ function testFechaCompleta() {
     console.log(`=== Pruebas completadas: ${exitosas}/${tests.length} exitosas ===`);
     return exitosas === tests.length;
 }
+}
 
 // Función para mostrar la guía del usuario
 function mostrarGuiaUsuario() {
