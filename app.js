@@ -192,37 +192,73 @@ async function captureAndProcess() {
             throw new Error('El procesador de texto no está disponible');
         }
 
-        // 1. Obtener dimensiones exactas del rectángulo
         const video = document.getElementById('camera');
         const rectangle = document.getElementById('selection-rectangle');
+        
+        // 1. Obtener dimensiones REALES del video (no del elemento HTML)
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+        
+        // 2. Calcular relación de aspecto REAL
+        const videoAspect = videoWidth / videoHeight;
+        const displayAspect = video.offsetWidth / video.offsetHeight;
+        
+        // 3. Ajustar por diferencias de aspect ratio
+        let scaledWidth, scaledHeight, offsetX = 0, offsetY = 0;
+        
+        if (videoAspect > displayAspect) {
+            // Video más ancho que el contenedor
+            scaledHeight = video.offsetHeight;
+            scaledWidth = scaledHeight * videoAspect;
+            offsetX = (video.offsetWidth - scaledWidth) / 2;
+        } else {
+            // Video más alto que el contenedor
+            scaledWidth = video.offsetWidth;
+            scaledHeight = scaledWidth / videoAspect;
+            offsetY = (video.offsetHeight - scaledHeight) / 2;
+        }
+        
+        // 4. Obtener posición RELATIVA del rectángulo
         const rect = rectangle.getBoundingClientRect();
         const videoRect = video.getBoundingClientRect();
-
-        // 2. Calcular coordenadas relativas al video
-        const scaleX = video.videoWidth / videoRect.width;
-        const scaleY = video.videoHeight / videoRect.height;
-
-        const captureX = (rect.left - videoRect.left) * scaleX;
-        const captureY = (rect.top - videoRect.top) * scaleY;
-        const captureWidth = rect.width * scaleX;
-        const captureHeight = rect.height * scaleY;
-
-        // 3. Crear canvas con las dimensiones correctas
+        
+        // 5. Convertir a coordenadas del video REAL
+        const captureX = ((rect.left - videoRect.left - offsetX) / scaledWidth) * videoWidth;
+        const captureY = ((rect.top - videoRect.top - offsetY) / scaledHeight) * videoHeight;
+        const captureWidth = (rect.width / scaledWidth) * videoWidth;
+        const captureHeight = (rect.height / scaledHeight) * videoHeight;
+        
+        // 6. Crear canvas con la región exacta
         const canvas = document.createElement('canvas');
         canvas.width = captureWidth;
         canvas.height = captureHeight;
         const ctx = canvas.getContext('2d');
-
-        // 4. Dibujar solo la región del rectángulo
+        
+        // 7. Dibujar SOLO la región seleccionada
         ctx.drawImage(
             video,
-            captureX, captureY, captureWidth, captureHeight, // Fuente (rectángulo)
-            0, 0, captureWidth, captureHeight                // Destino (canvas)
+            Math.max(0, captureX), Math.max(0, captureY), // Evitar valores negativos
+            Math.min(videoWidth - captureX, captureWidth),
+            Math.min(videoHeight - captureY, captureHeight),
+            0, 0,
+            captureWidth, captureHeight
         );
         
         // Mostrar vista previa
         resultsDiv.innerHTML = '';
         resultsDiv.appendChild(canvas);
+        
+        // Debug: Mostrar el área capturada en pantalla
+        const debugCanvas = canvas.cloneNode(true);
+        debugCanvas.style.position = 'fixed';
+        debugCanvas.style.top = '20px';
+        debugCanvas.style.left = '20px';
+        debugCanvas.style.border = '2px solid red';
+        debugCanvas.style.zIndex = '9999';
+        debugCanvas.style.maxWidth = '300px';
+        debugCanvas.style.maxHeight = '200px';
+        debugCanvas.style.objectFit = 'contain';
+        document.body.appendChild(debugCanvas);
         
         // Procesar con Tesseract
         updateLoaderMessage('Analizando texto...');
