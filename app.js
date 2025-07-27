@@ -66,10 +66,75 @@ class DVRHistory {
 
 // Elementos del DOM
 const camera = document.getElementById('camera');
+const cameraContainer = document.getElementById('camera-container');
 const captureBtn = document.getElementById('capture-btn');
 const resultsDiv = document.getElementById('results');
 const rectangle = document.getElementById('selection-rectangle');
-const cameraContainer = document.getElementById('camera-container');
+
+// 1. Variables globales para trackear scroll
+let scrollOffset = { x: 0, y: 0 };
+let isScrolling = false;
+
+// 2. Detectar scroll en el contenedor
+if (cameraContainer) {
+    cameraContainer.addEventListener('scroll', () => {
+        isScrolling = true;
+        scrollOffset = {
+            x: cameraContainer.scrollLeft,
+            y: cameraContainer.scrollTop
+        };
+        setTimeout(() => isScrolling = false, 100);
+    });
+}
+
+// 3. Función de captura con posición fija (alternativa)
+function fixedPositionCapture() {
+    const video = camera;
+    const selectionRect = rectangle.getBoundingClientRect();
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = selectionRect.width;
+    canvas.height = selectionRect.height;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.drawImage(
+        video,
+        selectionRect.left, selectionRect.top,
+        selectionRect.width, selectionRect.height,
+        0, 0,
+        selectionRect.width, selectionRect.height
+    );
+    
+    return canvas;
+}
+
+// 4. Función de pre-procesamiento de imagen
+function preprocessForOCR(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // Aumentar contraste (conversión a escala de grises y binarización)
+    for (let i = 0; i < imageData.data.length; i += 4) {
+        // Convertir a escala de grises (promedio ponderado para percepción humana)
+        const gray = Math.round(
+            0.299 * imageData.data[i] + 
+            0.587 * imageData.data[i + 1] + 
+            0.114 * imageData.data[i + 2]
+        );
+        
+        // Umbralización (binarización)
+        const threshold = 128;
+        const value = gray < threshold ? 0 : 255;
+        
+        imageData.data[i] = value;     // R
+        imageData.data[i + 1] = value; // G
+        imageData.data[i + 2] = value; // B
+        // Alpha se mantiene igual
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+}
 const cameraPlaceholder = document.getElementById('camera-placeholder');
 
 // Variables de estado
@@ -192,9 +257,17 @@ async function captureAndProcess() {
             throw new Error('El procesador de texto no está disponible');
         }
 
+        // Verificar si el usuario está haciendo scroll
+        if (isScrolling) {
+            showMessage("Termina de desplazarte antes de capturar", "warning");
+            throw new Error('Por favor, espera a que termine el desplazamiento');
+        }
+
         const video = document.getElementById('camera');
-        const rectangle = document.getElementById('selection-rectangle');
-        
+        const containerRect = cameraContainer.getBoundingClientRect();
+        const videoRect = video.getBoundingClientRect();
+        const selectionRect = rectangle.getBoundingClientRect();
+
         // 1. Obtener dimensiones REALES del video (no del elemento HTML)
         const videoWidth = video.videoWidth;
         const videoHeight = video.videoHeight;
@@ -218,31 +291,38 @@ async function captureAndProcess() {
             offsetY = (video.offsetHeight - scaledHeight) / 2;
         }
         
-        // 4. Obtener posición RELATIVA del rectángulo
-        const rect = rectangle.getBoundingClientRect();
-        const videoRect = video.getBoundingClientRect();
+        // 4. Ajustar coordenadas considerando scroll
+        const captureX = ((selectionRect.left - videoRect.left - offsetX + scrollOffset.x) / scaledWidth) * videoWidth;
+        const captureY = ((selectionRect.top - videoRect.top - offsetY + scrollOffset.y) / scaledHeight) * videoHeight;
+        const captureWidth = (selectionRect.width / scaledWidth) * videoWidth;
+        const captureHeight = (selectionRect.height / scaledHeight) * videoHeight;
         
-        // 5. Convertir a coordenadas del video REAL
-        const captureX = ((rect.left - videoRect.left - offsetX) / scaledWidth) * videoWidth;
-        const captureY = ((rect.top - videoRect.top - offsetY) / scaledHeight) * videoHeight;
-        const captureWidth = (rect.width / scaledWidth) * videoWidth;
-        const captureHeight = (rect.height / scaledHeight) * videoHeight;
-        
-        // 6. Crear canvas con la región exacta
+        // 5. Crear canvas con la región exacta
         const canvas = document.createElement('canvas');
-        canvas.width = captureWidth;
-        canvas.height = captureHeight;
+        canvas.width = Math.max(1, Math.round(captureWidth));
+        canvas.height = Math.max(1, Math.round(captureHeight));
         const ctx = canvas.getContext('2d');
         
-        // 7. Dibujar SOLO la región seleccionada
+        // 6. Dibujar SOLO la región seleccionada con ajuste de scroll
         ctx.drawImage(
             video,
-            Math.max(0, captureX), Math.max(0, captureY), // Evitar valores negativos
+            Math.max(0, captureX), 
+            Math.max(0, captureY),
             Math.min(videoWidth - captureX, captureWidth),
             Math.min(videoHeight - captureY, captureHeight),
             0, 0,
-            captureWidth, captureHeight
+            canvas.width, canvas.height
         );
+        
+        try {
+            // 7. Aplicar pre-procesamiento para mejorar OCR
+            return preprocessForOCR(canvas);
+        } catch (error) {
+            console.warn('Error en el método de captura principal, usando método alternativo...', error);
+            // Si falla, intentar con el método alternativo
+            const fallbackCanvas = fixedPositionCapture();
+            return preprocessForOCR(fallbackCanvas);
+        }
         
         // Mostrar vista previa
         resultsDiv.innerHTML = '';
@@ -834,6 +914,86 @@ function updateLoaderMessage(message) {
     }
 }
 
+// Función de captura mejorada para vista previa de depuración
+function enhancedCapture() {
+    try {
+        const video = camera;
+        const containerRect = cameraContainer.getBoundingClientRect();
+        const videoRect = video.getBoundingClientRect();
+        const selectionRect = rectangle.getBoundingClientRect();
+
+        // Crear canvas para la vista previa
+        const canvas = document.createElement('canvas');
+        canvas.width = selectionRect.width;
+        canvas.height = selectionRect.height;
+        const ctx = canvas.getContext('2d');
+        
+        // Dibujar la región seleccionada
+        ctx.drawImage(
+            video,
+            selectionRect.left - containerRect.left + cameraContainer.scrollLeft,
+            selectionRect.top - containerRect.top + cameraContainer.scrollTop,
+            selectionRect.width,
+            selectionRect.height,
+            0, 0,
+            selectionRect.width,
+            selectionRect.height
+        );
+        
+        return canvas;
+    } catch (error) {
+        console.error('Error en enhancedCapture:', error);
+        const canvas = document.createElement('canvas');
+        canvas.width = 100;
+        canvas.height = 30;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'red';
+        ctx.fillText('Error', 10, 20);
+        return canvas;
+    }
+}
+
+// Configuración de la vista previa de depuración
+let debugInitialized = false;
+function initDebugPreview() {
+    if (debugInitialized) return;
+    
+    // Crear contenedor de vista previa
+    const debugPreview = document.createElement('div');
+    debugPreview.id = 'debug-preview';
+    debugPreview.style.position = 'fixed';
+    debugPreview.style.bottom = '20px';
+    debugPreview.style.right = '20px';
+    debugPreview.style.width = '200px';
+    debugPreview.style.height = '150px';
+    debugPreview.style.border = '2px solid red';
+    debugPreview.style.backgroundColor = 'black';
+    debugPreview.style.overflow = 'hidden';
+    debugPreview.style.zIndex = '10000';
+    debugPreview.style.pointerEvents = 'none';
+    
+    // Estilo para las imágenes dentro del contenedor
+    debugPreview.innerHTML = '<style>#debug-preview img { width: 100%; height: 100%; object-fit: contain; }</style>';
+    
+    document.body.appendChild(debugPreview);
+    
+    // Actualizar la vista previa periódicamente
+    setInterval(() => {
+        if (isProcessing) return; // No actualizar durante el procesamiento
+        try {
+            const capture = enhancedCapture();
+            const img = new Image();
+            img.src = capture.toDataURL('image/png');
+            debugPreview.innerHTML = '';
+            debugPreview.appendChild(img);
+        } catch (e) {
+            console.error('Error actualizando vista previa:', e);
+        }
+    }, 500);
+    
+    debugInitialized = true;
+}
+
 // Función para mostrar la guía del usuario
 function mostrarGuiaUsuario() {
     const guide = `
@@ -919,6 +1079,10 @@ window.initApp = function() {
 
 // Iniciar la aplicación cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
+    // Iniciar la vista previa de depuración solo en desarrollo
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        initDebugPreview();
+    }
     // Mostrar mensaje de carga inicial
     showMessage('Cargando motor de reconocimiento...', 'info');
     
