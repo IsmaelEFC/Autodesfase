@@ -205,15 +205,18 @@ let stream = null;
 let isProcessing = false;
 const dvrHistory = new DVRHistory();
 let currentResult = null;
+let currentDeviceId = null;
+let currentFacingMode = 'environment';
+let torchEnabled = false;
 
 function checkCameraSupport() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
 // 2. Iniciar cámara con manejo de permisos mejorado
-async function initCamera() {
+async function initCamera(deviceId = null) {
     // Verificar compatibilidad
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices || !navigator.mediaDevices.getUserMedia) {
         const msg = 'Tu navegador no soporta la cámara o está bloqueado';
         showMessage(msg, 'error');
         cameraPlaceholder.innerHTML = `
@@ -221,78 +224,239 @@ async function initCamera() {
                 <i class="fas fa-video-slash fa-2x"></i>
                 <p>${msg}</p>
                 <p class="small">Prueba con un navegador más reciente o verifica los permisos.</p>
+                <p class="browser-support">Navegadores soportados: Chrome 63+, Edge 79+, Firefox 70+, Safari 12.2+</p>
             </div>`;
-        return;
+        return null;
     }
 
-    // Mostrar mensaje de carga
-    const loadingMsg = 'Solicitando acceso a la cámara...';
-    showMessage(loadingMsg, 'loading');
-    
-    // Configurar placeholder con indicador de carga
-    cameraPlaceholder.innerHTML = `
-        <div class="camera-loading">
-            <div class="loader"></div>
-            <p>${loadingMsg}</p>
-            <p class="small">Por favor, espera mientras configuramos la cámara.</p>
-        </div>`;
+    // Limpiar cualquier stream existente
+    if (window.stream) {
+        window.stream.getTracks().forEach(track => track.stop());
+        window.stream = null;
+    }
 
     try {
-        // Configurar opciones de la cámara con manejo para móviles
+        // Mostrar mensaje de carga
+        showMessage('Inicializando cámara...', 'info');
+        cameraPlaceholder.innerHTML = `
+            <div class="camera-loading">
+                <div class="loader"></div>
+                <p>Inicializando cámara...</p>
+                <p class="small">Por favor, espera mientras configuramos tu cámara.</p>
+            </div>`;
+
+        // Obtener lista de dispositivos de cámara
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        
+        if (videoDevices.length === 0) {
+            throw new Error('No se encontraron cámaras disponibles');
+        }
+
+        // Configuración de la cámara
         const constraints = {
             video: {
-                facingMode: 'environment',
+                ...(deviceId 
+                    ? { deviceId: { exact: deviceId } } 
+                    : { facingMode: { ideal: 'environment' } }),
                 width: { ideal: 1920, min: 1280 },
                 height: { ideal: 1080, min: 720 },
-                frameRate: { ideal: 30, min: 15 },
-                aspectRatio: { ideal: 1.777 } // 16:9
+                frameRate: { ideal: 30, max: 30 },
+                aspectRatio: { ideal: 16/9 },
+                resizeMode: 'crop-and-scale'
             },
             audio: false
         };
 
-        // Timeout para la inicialización de la cámara (5 segundos)
-        const initTimeout = 5000;
+        // Timeout para la inicialización de la cámara (8 segundos)
+        const initTimeout = 8000;
         const initPromise = navigator.mediaDevices.getUserMedia(constraints);
         const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Tiempo de espera agotado')), initTimeout)
+            setTimeout(() => reject(new Error('Tiempo de espera agotado. La cámara tardó demasiado en responder.')), initTimeout)
         );
 
         // Esperar a que la cámara esté lista o se agote el tiempo
         const stream = await Promise.race([initPromise, timeoutPromise]);
+        window.stream = stream;
         
         // Configurar el elemento de video
         camera.srcObject = stream;
+        camera.playsInline = true;
+        camera.setAttribute('playsinline', ''); // Para iOS
         
         // Esperar a que el video esté listo para reproducir
         await new Promise((resolve, reject) => {
             const onLoaded = () => {
+                // Limpiar cualquier listener anterior
+                camera.onloadeddata = null;
+                camera.onerror = null;
+                
                 camera.play().then(() => {
+                    // Mostrar controles de cámara
+                    setupCameraControls(videoDevices);
+                    
                     // Mostrar el video y el rectángulo de selección
                     camera.style.display = 'block';
                     rectangle.style.display = 'block';
                     cameraPlaceholder.style.display = 'none';
                     captureBtn.disabled = false;
-                    showMessage('Cámara lista. Enfoca la pantalla del DVR en el rectángulo verde.', 'info');
-                    resolve();
-                }).catch(reject);
+                    
+                    // Asegurar que el contenedor de la cámara tenga el tamaño correcto
+                    updateCameraContainerSize();
+                    
+                    showMessage('Cámara lista. Enfoca la pantalla del DVR en el rectángulo verde.', 'success');
+                    resolve(stream);
+                }).catch(err => {
+                    console.error('Error al reproducir el video:', err);
+                    reject(new Error('No se pudo reproducir el video de la cámara'));
+                });
             };
             
-            if (camera.readyState >= 3) { // HAVE_FUTURE_DATA o mayor
+            // Configurar manejadores de eventos
+            camera.onloadeddata = onLoaded;
+            camera.onerror = (err) => {
+                console.error('Error en el elemento de video:', err);
+                reject(new Error('Error al cargar el video de la cámara'));
+            };
+            
+            // Si el video ya está listo, llamar a onLoaded directamente
+            if (camera.readyState >= 3) {
                 onLoaded();
-            } else {
-                camera.onloadeddata = onLoaded;
             }
-            
-            // Manejar errores de reproducción
-            camera.onerror = () => {
-                reject(new Error('No se pudo reproducir el video de la cámara'));
-            };
         });
+        
+        return stream;
         
     } catch (error) {
         handleCameraError(error);
+        return null;
     }
 }
+
+// Función para configurar los controles de la cámara
+function setupCameraControls(videoDevices) {
+    const controlsContainer = document.getElementById('camera-controls') || createCameraControlsContainer();
+    
+    // Limpiar controles existentes
+    controlsContainer.innerHTML = '';
+    
+    // Botón para cambiar de cámara (solo si hay más de una cámara)
+    if (videoDevices.length > 1) {
+        const switchBtn = document.createElement('button');
+        switchBtn.className = 'camera-control-btn';
+        switchBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        switchBtn.title = 'Cambiar de cámara';
+        switchBtn.onclick = () => switchCamera();
+        controlsContainer.appendChild(switchBtn);
+    }
+    
+    // Botón para activar/desactivar flash (si está disponible)
+    const flashBtn = document.createElement('button');
+    flashBtn.className = 'camera-control-btn';
+    flashBtn.innerHTML = '<i class="fas fa-bolt"></i>';
+    flashBtn.title = 'Activar flash';
+    flashBtn.onclick = toggleTorch;
+    controlsContainer.appendChild(flashBtn);
+    
+    // Mostrar controles
+    controlsContainer.style.display = 'flex';
+}
+
+// Función para crear el contenedor de controles de cámara
+function createCameraControlsContainer() {
+    const container = document.createElement('div');
+    container.id = 'camera-controls';
+    container.className = 'camera-controls';
+    document.getElementById('camera-container').appendChild(container);
+    return container;
+}
+
+// Función para cambiar entre cámaras
+async function switchCamera() {
+    if (!stream) return;
+    
+    // Obtener dispositivos de video
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    
+    if (videoDevices.length < 2) return;
+    
+    // Encontrar el siguiente dispositivo de cámara
+    const currentDeviceIndex = videoDevices.findIndex(device => 
+        device.deviceId === currentDeviceId
+    );
+    
+    const nextDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+    const nextDevice = videoDevices[nextDeviceIndex];
+    
+    // Actualizar modo de cámara (frontal/trasera)
+    currentFacingMode = nextDevice.label.toLowerCase().includes('front') ? 'user' : 'environment';
+    currentDeviceId = nextDevice.deviceId;
+    
+    // Reiniciar la cámara con el nuevo dispositivo
+    await initCamera(currentDeviceId);
+}
+
+// Función para activar/desactivar el flash
+async function toggleTorch() {
+    if (!stream) return;
+    
+    const track = stream.getVideoTracks()[0];
+    if (!track || !('applyConstraints' in track)) {
+        showMessage('El flash no está disponible en este dispositivo', 'warning');
+        return;
+    }
+    
+    try {
+        await track.applyConstraints({
+            advanced: [{ torch: (torchEnabled = !torchEnabled) }]
+        });
+        
+        // Actualizar icono del botón
+        const flashBtn = document.querySelector('#camera-controls .fa-bolt').parentNode;
+        if (torchEnabled) {
+            flashBtn.innerHTML = '<i class="fas fa-bolt" style="color: #ffeb3b"></i>';
+            flashBtn.title = 'Desactivar flash';
+        } else {
+            flashBtn.innerHTML = '<i class="fas fa-bolt"></i>';
+            flashBtn.title = 'Activar flash';
+        }
+    } catch (error) {
+        console.error('Error al controlar el flash:', error);
+        showMessage('No se pudo controlar el flash', 'error');
+    }
+}
+
+// Función para actualizar el tamaño del contenedor de la cámara
+function updateCameraContainerSize() {
+    const container = document.getElementById('camera-container');
+    if (!container) return;
+    
+    // Obtener relación de aspecto del video
+    const video = document.getElementById('camera');
+    if (!video.videoWidth) return;
+    
+    const videoAspect = video.videoWidth / video.videoHeight;
+    const containerAspect = container.clientWidth / container.clientHeight;
+    
+    // Ajustar el tamaño del video para que se ajuste al contenedor
+    if (containerAspect > videoAspect) {
+        video.style.width = '100%';
+        video.style.height = 'auto';
+    } else {
+        video.style.width = 'auto';
+        video.style.height = '100%';
+    }
+    
+    // Asegurarse de que el video esté centrado
+    video.style.position = 'absolute';
+    video.style.left = '50%';
+    video.style.top = '50%';
+    video.style.transform = 'translate(-50%, -50%)';
+}
+
+// Manejar el redimensionamiento de la ventana
+window.addEventListener('resize', updateCameraContainerSize);
 
 // 3. Manejo mejorado de errores de cámara
 function handleCameraError(err) {
