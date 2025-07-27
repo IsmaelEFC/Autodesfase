@@ -1,3 +1,66 @@
+// Debug visual del área de captura
+let debugCanvas = null;
+let debugInterval = null;
+
+function initDebugVisualization() {
+    // Crear canvas de depuración
+    debugCanvas = document.createElement('canvas');
+    debugCanvas.width = 200;  // Ancho fijo para la vista previa
+    debugCanvas.height = 100; // Alto fijo para la vista previa
+    debugCanvas.style.position = 'fixed';
+    debugCanvas.style.bottom = '10px';
+    debugCanvas.style.right = '10px';
+    debugCanvas.style.border = '2px solid red';
+    debugCanvas.style.zIndex = '9999';
+    debugCanvas.style.backgroundColor = 'black';
+    debugCanvas.style.display = 'none'; // Oculto por defecto
+    document.body.appendChild(debugCanvas);
+
+    // Solo activar en desarrollo
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        debugCanvas.style.display = 'block';
+    }
+}
+
+function updateDebugVisualization(camera, captureX, captureY, captureWidth, captureHeight) {
+    if (!debugCanvas) return;
+    
+    const ctx = debugCanvas.getContext('2d');
+    ctx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+    
+    // Calcular relación de aspecto para mantener proporciones
+    const aspectRatio = captureWidth / captureHeight;
+    let drawWidth = debugCanvas.width;
+    let drawHeight = debugCanvas.width / aspectRatio;
+    
+    if (drawHeight > debugCanvas.height) {
+        drawHeight = debugCanvas.height;
+        drawWidth = debugCanvas.height * aspectRatio;
+    }
+    
+    // Dibujar la región capturada
+    try {
+        ctx.drawImage(
+            camera, 
+            captureX, captureY, 
+            captureWidth, captureHeight,
+            0, 0,
+            drawWidth, drawHeight
+        );
+    } catch (e) {
+        console.warn('No se pudo actualizar la vista previa de depuración:', e);
+    }
+}
+
+// Configuración de Tesseract.js
+if (typeof Tesseract !== 'undefined') {
+    Tesseract.workerOptions = {
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+        langPath: 'https://cdn.jsdelivr.net/npm/tesseract.js-data@4',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
+    };
+}
+
 // Función para cargar Tesseract dinámicamente
 const loadTesseract = () => {
     return new Promise((resolve, reject) => {
@@ -240,9 +303,10 @@ function handleCameraError(err) {
 async function captureAndProcess() {
     if (isProcessing) return;
     isProcessing = true;
+    captureBtn.disabled = true;
 
     try {
-        // Mostrar loader
+        // 1. Mostrar loader
         resultsDiv.innerHTML = `
             <div style="text-align: center;">
                 <div class="loader"></div>
@@ -250,124 +314,72 @@ async function captureAndProcess() {
             </div>
         `;
         
-        captureBtn.disabled = true;
-        
-        // Verificar que Tesseract esté cargado
-        if (typeof Tesseract === 'undefined') {
-            throw new Error('El procesador de texto no está disponible');
-        }
-
-        // Verificar si el usuario está haciendo scroll
-        if (isScrolling) {
-            showMessage("Termina de desplazarte antes de capturar", "warning");
-            throw new Error('Por favor, espera a que termine el desplazamiento');
-        }
-
+        // 2. Obtener dimensiones exactas
         const video = document.getElementById('camera');
-        const containerRect = cameraContainer.getBoundingClientRect();
+        const rectangle = document.getElementById('selection-rectangle');
+        const rect = rectangle.getBoundingClientRect();
         const videoRect = video.getBoundingClientRect();
-        const selectionRect = rectangle.getBoundingClientRect();
 
-        // 1. Obtener dimensiones REALES del video (no del elemento HTML)
-        const videoWidth = video.videoWidth;
-        const videoHeight = video.videoHeight;
+        // 3. Calcular región de captura (ajustada a scroll/zoom)
+        const scaleX = video.videoWidth / videoRect.width;
+        const scaleY = video.videoHeight / videoRect.height;
         
-        // 2. Calcular relación de aspecto REAL
-        const videoAspect = videoWidth / videoHeight;
-        const displayAspect = video.offsetWidth / video.offsetHeight;
-        
-        // 3. Ajustar por diferencias de aspect ratio
-        let scaledWidth, scaledHeight, offsetX = 0, offsetY = 0;
-        
-        if (videoAspect > displayAspect) {
-            // Video más ancho que el contenedor
-            scaledHeight = video.offsetHeight;
-            scaledWidth = scaledHeight * videoAspect;
-            offsetX = (video.offsetWidth - scaledWidth) / 2;
-        } else {
-            // Video más alto que el contenedor
-            scaledWidth = video.offsetWidth;
-            scaledHeight = scaledWidth / videoAspect;
-            offsetY = (video.offsetHeight - scaledHeight) / 2;
-        }
-        
-        // 4. Ajustar coordenadas considerando scroll
-        const captureX = ((selectionRect.left - videoRect.left - offsetX + scrollOffset.x) / scaledWidth) * videoWidth;
-        const captureY = ((selectionRect.top - videoRect.top - offsetY + scrollOffset.y) / scaledHeight) * videoHeight;
-        const captureWidth = (selectionRect.width / scaledWidth) * videoWidth;
-        const captureHeight = (selectionRect.height / scaledHeight) * videoHeight;
-        
-        // 5. Crear canvas con la región exacta
+        const captureX = (rect.left - videoRect.left) * scaleX;
+        const captureY = (rect.top - videoRect.top) * scaleY;
+        const captureWidth = rect.width * scaleX;
+        const captureHeight = rect.height * scaleY;
+
+        // 4. Crear canvas con la región exacta
         const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(captureWidth));
-        canvas.height = Math.max(1, Math.round(captureHeight));
+        canvas.width = captureWidth;
+        canvas.height = captureHeight;
         const ctx = canvas.getContext('2d');
         
-        // 6. Dibujar SOLO la región seleccionada con ajuste de scroll
-        ctx.drawImage(
-            video,
-            Math.max(0, captureX), 
-            Math.max(0, captureY),
-            Math.min(videoWidth - captureX, captureWidth),
-            Math.min(videoHeight - captureY, captureHeight),
-            0, 0,
-            canvas.width, canvas.height
+        // 5. Dibujar la región seleccionada en el canvas
+        ctx.drawImage(video, 
+            captureX, captureY, 
+            captureWidth, captureHeight, 
+            0, 0, 
+            captureWidth, captureHeight
         );
         
-        try {
-            // 7. Aplicar pre-procesamiento para mejorar OCR
-            return preprocessForOCR(canvas);
-        } catch (error) {
-            console.warn('Error en el método de captura principal, usando método alternativo...', error);
-            // Si falla, intentar con el método alternativo
-            const fallbackCanvas = fixedPositionCapture();
-            return preprocessForOCR(fallbackCanvas);
-        }
+        // 5.1 Actualizar la vista previa de depuración
+        updateDebugVisualization(video, captureX, captureY, captureWidth, captureHeight);
         
-        // Mostrar vista previa
-        resultsDiv.innerHTML = '';
-        resultsDiv.appendChild(canvas);
+        // 6. Aplicar preprocesamiento para mejorar OCR
+        const processedCanvas = preprocessForOCR(canvas);
+
+        // 7. Configurar timeout para el procesamiento OCR
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Tiempo excedido (5s)")), 5000)
+        );
+
+        // 8. Procesar con Tesseract
+        const ocrPromise = Tesseract.recognize(
+            processedCanvas,
+            'eng+spa',
+            { 
+                logger: m => console.log(m),
+                tessedit_char_whitelist: '0123456789:-/. ',
+                preserve_interword_spaces: 1
+            }
+        );
+
+        const { data: { text } } = await Promise.race([ocrPromise, timeoutPromise]);
         
-        // Debug: Mostrar el área capturada en pantalla
-        const debugCanvas = canvas.cloneNode(true);
-        debugCanvas.style.position = 'fixed';
-        debugCanvas.style.top = '20px';
-        debugCanvas.style.left = '20px';
-        debugCanvas.style.border = '2px solid red';
-        debugCanvas.style.zIndex = '9999';
-        debugCanvas.style.maxWidth = '300px';
-        debugCanvas.style.maxHeight = '200px';
-        debugCanvas.style.objectFit = 'contain';
-        document.body.appendChild(debugCanvas);
-        
-        // Procesar con Tesseract
-        updateLoaderMessage('Analizando texto...');
-        const text = await procesarImagenConOCR(canvas);
-        
-        // Extraer fecha/hora
-        updateLoaderMessage('Extrayendo hora del DVR...');
-        const horaDVR = extraerFechaHoraDVR(text);
-        
-        // Obtener hora oficial
-        updateLoaderMessage('Obteniendo hora oficial...');
-        const horaOficial = await obtenerHoraOficial();
-        
-        // Calcular diferencia
-        const diferencia = calcularDiferencia(horaDVR, horaOficial);
-        
-        // Mostrar resultados
-        mostrarResultados(horaDVR, horaOficial, diferencia, text);
+        // 9. Procesar resultados
+        await procesarDVR(text);
         
     } catch (error) {
-        console.error('Error en captureAndProcess:', error);
-        showMessage(`Error: ${error.message}`, 'error');
-        
-        // Reintentar automáticamente después de un segundo
-        setTimeout(() => {
-            if (confirm('Hubo un error al procesar. ¿Quieres intentarlo nuevamente?')) {
-                captureAndProcess();
-            }
-        }, 1000);
+        console.error("Error en captura:", error);
+        resultsDiv.innerHTML = `
+            <div class="error">
+                <p>Error al procesar: ${error.message}</p>
+                <button onclick="captureAndProcess()" class="retry-btn">
+                    <i class="fas fa-redo"></i> Reintentar
+                </button>
+            </div>
+        `;
     } finally {
         isProcessing = false;
         captureBtn.disabled = false;
@@ -1079,6 +1091,8 @@ window.initApp = function() {
 
 // Iniciar la aplicación cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicializar la visualización de depuración
+    initDebugVisualization();
     // Iniciar la vista previa de depuración solo en desarrollo
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         initDebugPreview();
