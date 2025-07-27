@@ -92,6 +92,8 @@
             height: 100%;
             object-fit: cover;
             display: block;
+            position: relative;
+            z-index: 1;
         }
         
         #selection-rectangle {
@@ -105,7 +107,8 @@
             background-color: rgba(76, 175, 80, 0.1);
             pointer-events: none;
             border-radius: 8px;
-            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.7); /* Oscurece el exterior */
+            box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.7);
+            z-index: 10;
         }
         
         /* Ajustes para móviles */

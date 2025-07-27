@@ -175,7 +175,7 @@ function handleCameraError(err) {
 async function captureAndProcess() {
     if (isProcessing) return;
     isProcessing = true;
-    
+
     try {
         // Mostrar loader
         resultsDiv.innerHTML = `
@@ -191,22 +191,33 @@ async function captureAndProcess() {
         if (typeof Tesseract === 'undefined') {
             throw new Error('El procesador de texto no está disponible');
         }
-        
-        // Capturar imagen del área de selección
+
+        // 1. Obtener dimensiones exactas del rectángulo
+        const video = document.getElementById('camera');
+        const rectangle = document.getElementById('selection-rectangle');
+        const rect = rectangle.getBoundingClientRect();
+        const videoRect = video.getBoundingClientRect();
+
+        // 2. Calcular coordenadas relativas al video
+        const scaleX = video.videoWidth / videoRect.width;
+        const scaleY = video.videoHeight / videoRect.height;
+
+        const captureX = (rect.left - videoRect.left) * scaleX;
+        const captureY = (rect.top - videoRect.top) * scaleY;
+        const captureWidth = rect.width * scaleX;
+        const captureHeight = rect.height * scaleY;
+
+        // 3. Crear canvas con las dimensiones correctas
         const canvas = document.createElement('canvas');
+        canvas.width = captureWidth;
+        canvas.height = captureHeight;
         const ctx = canvas.getContext('2d');
-        const rect = document.getElementById('selection-rectangle').getBoundingClientRect();
-        
-        // Aumentar resolución para mejor reconocimiento
-        const scale = 2;
-        canvas.width = rect.width * scale;
-        canvas.height = rect.height * scale;
-        
-        // Dibujar la región de interés con mayor resolución
+
+        // 4. Dibujar solo la región del rectángulo
         ctx.drawImage(
-            camera,
-            rect.left, rect.top, rect.width, rect.height, // Fuente
-            0, 0, canvas.width, canvas.height            // Destino con mayor resolución
+            video,
+            captureX, captureY, captureWidth, captureHeight, // Fuente (rectángulo)
+            0, 0, captureWidth, captureHeight                // Destino (canvas)
         );
         
         // Mostrar vista previa
