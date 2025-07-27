@@ -1,27 +1,42 @@
-const CACHE_NAME = 'dvr-checker-final';
-const ASSETS_TO_CACHE = [
-  '/Dvr_Time_Checker/',  // Ruta base para GitHub Pages
-  '/Dvr_Time_Checker/index.html',
-  '/Dvr_Time_Checker/app.js',
-  '/Dvr_Time_Checker/manifest.json',
-  '/Dvr_Time_Checker/icons/icon-192x192.png',
-  '/Dvr_Time_Checker/icons/icon-512x512.png',
-  'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js',
-  'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-  'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
-  'https://cdn.jsdelivr.net/npm/tesseract.js-data@4/eng.traineddata.gz',
-  'https://cdn.jsdelivr.net/npm/tesseract.js-data@4/spa.traineddata.gz',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+const CACHE_NAME = 'dvr-check-v3';
+const ASSETS = [
+  { url: '/', type: 'html' },
+  { url: '/index.html', type: 'html' },
+  { url: '/app.js', type: 'script' },
+  { url: '/manifest.json', type: 'json' },
+  { url: '/icons/icon-192x192.png', type: 'image' },
+  { url: '/icons/icon-512x512.png', type: 'image' },
+  { url: '/ejemplo-correcto.jpg', type: 'image' }
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('Cacheando recursos esenciales');
-        return cache.addAll(ASSETS_TO_CACHE);
+        console.log('Cacheando recursos estáticos');
+        return Promise.all(
+          ASSETS.map(asset => {
+            return fetch(asset.url)
+              .then(res => {
+                if (!res.ok) throw new Error(`Failed: ${asset.url}`);
+                console.log('Cached:', asset.url);
+                return cache.put(asset.url, res);
+              })
+              .catch(err => {
+                console.warn('Cache skip:', asset.url, err);
+                return Promise.resolve(); // Continue with other assets
+              });
+          })
+        );
       })
-      .catch(err => console.error('Error al cachear:', err))
+      .then(() => {
+        console.log('Todos los recursos han sido cacheados');
+        return self.skipWaiting();
+      })
+      .catch(err => {
+        console.error('Error durante la instalación del Service Worker:', err);
+        throw err; // Re-throw to ensure the installation fails visibly
+      })
   );
 });
 

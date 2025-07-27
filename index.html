@@ -2,14 +2,47 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#4CAF50">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>Verificador Horario DVR</title>
     <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script>
+      // Carga garantizada de Tesseract
+      (function() {
+        const tesseractSrc = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
+        const tesseractCheck = setInterval(() => {
+          if (window.Tesseract) {
+            clearInterval(tesseractCheck);
+            console.log('Tesseract cargado, versión:', Tesseract.version);
+            if (window.initApp) {
+              window.initApp();
+            }
+          }
+        }, 100);
+
+        const script = document.createElement('script');
+        script.src = tesseractSrc;
+        script.onerror = () => {
+          clearInterval(tesseractCheck);
+          console.error('Error cargando Tesseract');
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'error';
+          errorDiv.innerHTML = `
+            <p>Error crítico: No se pudo cargar el motor OCR.</p>
+            <button onclick="window.location.reload()" class="retry-btn">
+              <i class="fas fa-redo"></i> Reintentar
+            </button>
+          `;
+          const placeholder = document.getElementById('camera-placeholder') || document.body;
+          placeholder.innerHTML = '';
+          placeholder.appendChild(errorDiv);
+        };
+        document.head.appendChild(script);
+      })();
+    </script>
     <style>
         :root {
             --primary-color: #4CAF50;

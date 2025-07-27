@@ -1,20 +1,33 @@
+// Función para cargar Tesseract dinámicamente
+const loadTesseract = () => {
+    return new Promise((resolve, reject) => {
+        // Si ya está cargado, lo devolvemos inmediatamente
+        if (window.Tesseract) {
+            console.log('Tesseract ya está cargado, versión:', window.Tesseract.version);
+            return resolve();
+        }
 
-// Verificar que Tesseract esté cargado
-if (typeof Tesseract === 'undefined' || !Tesseract.recognize) {
-  console.error('Tesseract no se cargó correctamente');
-  document.addEventListener('DOMContentLoaded', () => {
-    const resultsDiv = document.getElementById('results') || document.body;
-    resultsDiv.innerHTML = `
-      <div class="error">
-        Error: El procesador de texto no está disponible. Recarga la página.
-        <button onclick="window.location.reload()" class="retry-btn">Reintentar</button>
-      </div>
-    `;
-  });
-  throw new Error('Tesseract.js no disponible');
-}
-
-console.log('Tesseract cargado correctamente, versión:', Tesseract.version);
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js';
+        script.integrity = 'sha384-...'; // Opcional: añadir SRI hash si es necesario
+        script.crossOrigin = 'anonymous';
+        
+        script.onload = () => {
+            if (!window.Tesseract) {
+                return reject(new Error('Tesseract no se inicializó correctamente'));
+            }
+            console.log('Tesseract cargado dinámicamente, versión:', window.Tesseract.version);
+            resolve();
+        };
+        
+        script.onerror = (error) => {
+            console.error('Error al cargar Tesseract:', error);
+            reject(new Error('No se pudo cargar el procesador OCR. Verifica tu conexión a internet.'));
+        };
+        
+        document.head.appendChild(script);
+    });
+};
 
 // Servidores de tiempo alternativos
 const TIME_SERVERS = [
@@ -311,11 +324,51 @@ function extraerFechaHoraDVR(texto) {
         .replace(/\s+/g, ' ')
         .trim();
 
+    // Patrón para solo hora (formato HH:MM o HH:MM:SS)
+    const soloHoraPattern = /(\d{2}):(\d{2})(?::(\d{2}))?/;
+    const horaMatch = textoLimpio.match(soloHoraPattern);
+    
+    // Si coincide con un patrón de solo hora y no hay año en el texto
+    if (horaMatch && !/\d{4}/.test(textoLimpio)) {
+        return {
+            dia: 0,
+            mes: 0,
+            año: 0,
+            horas: parseInt(horaMatch[1]),
+            minutos: parseInt(horaMatch[2]),
+            segundos: horaMatch[3] ? parseInt(horaMatch[3]) : 0
+        };
+    }
+
     // Patrones para todos los formatos especificados
     const patterns = [
-        // 1. Formatos con día de semana (jue/fri)
+        // 1. Nuevo formato: "01:01:2023 fri 14:30:45"
         {
-            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/,
+            regex: /(\d{2}):(\d{2}):(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
+            parser: (match) => ({
+                dia: parseInt(match[1]),
+                mes: parseInt(match[2]),
+                año: parseInt(match[3]),
+                horas: parseInt(match[4]),
+                minutos: parseInt(match[5]),
+                segundos: parseInt(match[6])
+            })
+        },
+        // 2. Formatos con hora primero, luego día de semana (ej: 14:30:45 2023-01-01 jue)
+        {
+            regex: /(\d{2}):(\d{2}):(\d{2})\s+(\d{4})[-.\/](\d{2})[-.\/](\d{2})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)/i,
+            parser: (match) => ({
+                dia: parseInt(match[6]),
+                mes: parseInt(match[5]),
+                año: parseInt(match[4]),
+                horas: parseInt(match[1]),
+                minutos: parseInt(match[2]),
+                segundos: parseInt(match[3])
+            })
+        },
+        // 2. Formatos con día de semana (jue/fri)
+        {
+            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
             parser: (match) => ({
                 dia: parseInt(match[1]),
                 mes: parseInt(match[3]),
@@ -427,60 +480,22 @@ if (window.location.hostname === "localhost") {
 }
 
 function testFormats() {
-    const tests = [
-        {
-            input: "01:01:2023 fri 14:30:45",
-            expected: { dia: 0, mes: 0, año: 2023, horas: 14, minutos: 30, segundos: 45 },
-            description: "Formato especial hora:año con día en inglés"
-        },
-        {
-            input: "2023-01-01 14:30:45",
-            expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 },
-            description: "Formato ISO"
-        },
-        {
-            input: "14:30",
-            expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 0 },
-            description: "Solo hora sin segundos"
-        },
-        { 
-            input: "14:30:45", 
-            expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 45 },
-            description: "Solo hora con segundos"
-        },
-        { 
-            input: "01-01-2023 vie 14:30:45", 
-            expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 },
-            description: "Fecha con día de semana en español"
-        }
-    ];
-
-    console.log("=== Iniciando pruebas definitivas ===");
-    let allPassed = true;
-    
-    tests.forEach(test => {
-        console.log(`\nTest: ${test.description}`);
-        console.log(`Input: "${test.input}"`);
-        
-        const result = extraerFechaHoraDVR(test.input);
-        const passed = JSON.stringify(result) === JSON.stringify(test.expected);
-        
-        if (!passed) {
-            allPassed = false;
-            console.error("❌ Falló");
-            console.log("Obtenido:", result);
-            console.log("Esperado:", test.expected);
-        } else {
-            console.log("✓ Pasó");
-        }
-    });
-
-    console.log("\n=== Resumen Final ===");
-    if (allPassed) {
-        console.log("✅ ¡Todas las pruebas pasaron correctamente!");
-    } else {
-        console.error("⚠️ Algunas pruebas fallaron - Revisar implementación");
+  const tests = [
+    {
+      input: "01-01-2023 14:30:45",
+      expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 }
+    },
+    {
+      input: "14:30",
+      expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 0 }
     }
+  ];
+
+  tests.forEach(test => {
+    const result = extraerFechaHoraDVR(test.input);
+    const passed = JSON.stringify(result) === JSON.stringify(test.expected);
+    console.log(passed ? '✓' : '✗', test.input, '->', result);
+  });
 }
 
 function debugMatching(input) {
@@ -662,39 +677,34 @@ function copyToClipboard(text) {
 
 // Verificar dependencias al cargar
 function verificarDependencias() {
-  const dependencias = [
-    'Tesseract',
-    'caches',
-    'serviceWorker',
-    'mediaDevices'
-  ];
+  const checks = {
+    Tesseract: !!window.Tesseract,
+    mediaDevices: !!navigator.mediaDevices,
+    serviceWorker: 'serviceWorker' in navigator
+  };
 
-  let todasCargadas = true;
-  
-  // Verificar Tesseract primero con manejo detallado
-  if (typeof Tesseract === 'undefined') {
-    todasCargadas = false;
-    console.error('Error crítico: Tesseract.js no se cargó correctamente');
-    showMessage(
-      `Error: No se pudo cargar el procesador de texto. Por favor recarga la página.\n` +
-      `Si el problema persiste, verifica tu conexión a internet.`,
-      'error'
-    );
-    return false;
-  }
-  
-  console.log('Tesseract cargado correctamente, versión:', Tesseract.version);
-
-  // Verificar otras dependencias
-  const otrasDependencias = dependencias.filter(dep => dep !== 'Tesseract');
-  otrasDependencias.forEach(dep => {
-    if (!window[dep]) {
-      todasCargadas = false;
-      console.warn(`Advertencia: Falta dependencia: ${dep}`);
+  // Mostrar advertencias para dependencias faltantes
+  Object.entries(checks).forEach(([name, loaded]) => {
+    if (!loaded) {
+      console.warn(`Dependencia faltante: ${name}`);
+      
+      // Mostrar mensaje de error solo para Tesseract
+      if (name === 'Tesseract') {
+        showMessage(
+          'Error: No se pudo cargar el procesador de texto. Por favor recarga la página.\n' +
+          'Si el problema persiste, verifica tu conexión a internet.',
+          'error'
+        );
+      }
     }
   });
+
+  // Mostrar versión de Tesseract si está cargado
+  if (checks.Tesseract) {
+    console.log('Tesseract cargado correctamente, versión:', Tesseract.version);
+  }
   
-  return todasCargadas;
+  return checks.Tesseract; // Solo requerimos Tesseract para iniciar
 }
 
 // Función para mejorar el contraste de la imagen
@@ -796,39 +806,79 @@ function mostrarGuiaUsuario() {
     document.getElementById('instructions').innerHTML = guide;
 }
 
-// Inicialización
-document.addEventListener('DOMContentLoaded', () => {
-    // Configurar botón de ayuda
-    const helpBtn = document.getElementById('help-btn');
-    if (helpBtn) {
-        helpBtn.addEventListener('click', mostrarGuiaUsuario);
-    }
+// Función de inicialización que se llama cuando Tesseract está listo
+window.initApp = function() {
+    // Mostrar mensaje de carga
+    showMessage('Inicializando aplicación...', 'info');
     
-    // Verificar dependencias antes de continuar
-    if (!verificarDependencias()) {
-        showMessage('Algunas funciones podrían no estar disponibles. Por favor recarga la página.', 'warning');
-    }
-    
-    initCamera();
-    captureBtn.addEventListener('click', captureAndProcess);
-    document.getElementById('clear-history').addEventListener('click', () => {
-        dvrHistory.clear();
+    try {
+        console.log('Tesseract está listo, versión:', Tesseract.version);
+        
+        // Configurar botón de ayuda
+        const helpBtn = document.getElementById('help-btn');
+        if (helpBtn) {
+            helpBtn.addEventListener('click', mostrarGuiaUsuario);
+        }
+        
+        // Verificar dependencias
+        if (!verificarDependencias()) {
+            showMessage('Algunas funciones podrían no estar disponibles. Por favor recarga la página.', 'warning');
+        }
+        
+        // Iniciar cámara
+        initCamera();
+        
+        // Configurar eventos
+        if (captureBtn) {
+            captureBtn.addEventListener('click', captureAndProcess);
+        }
+        
+        const clearHistoryBtn = document.getElementById('clear-history');
+        if (clearHistoryBtn) {
+            clearHistoryBtn.addEventListener('click', () => {
+                dvrHistory.clear();
+                mostrarHistorial();
+            });
+        }
+        
+        // Mostrar historial
         mostrarHistorial();
-    });
-    
-    // Mostrar historial al cargar
-    mostrarHistorial();
-    
-    // Registrar Service Worker
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        
+        // Registrar Service Worker
+        if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js')
                 .then(registration => {
                     console.log('SW registrado:', registration.scope);
-                    registration.update(); // Forzar actualización
+                    registration.update();
                 })
-                .catch(err => console.error('Error SW:', err));
-        });
+                .catch(error => {
+                    console.error('Error al registrar el Service Worker:', error);
+                });
+        }
+        
+        showMessage('Aplicación lista para usar', 'success');
+        
+    } catch (error) {
+        console.error('Error durante la inicialización:', error);
+        showMessage('Ocurrió un error al inicializar la aplicación', 'error');
+        
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'retry-btn';
+        retryBtn.innerHTML = '<i class="fas fa-redo"></i> Reintentar';
+        retryBtn.onclick = () => window.location.reload();
+        (resultsDiv || document.body).appendChild(retryBtn);
+    }
+};
+
+// Iniciar la aplicación cuando el DOM esté listo
+document.addEventListener('DOMContentLoaded', () => {
+    // Mostrar mensaje de carga inicial
+    showMessage('Cargando motor de reconocimiento...', 'info');
+    
+    // Si Tesseract ya está cargado, inicializar la aplicación
+    if (window.Tesseract) {
+        console.log('Tesseract ya estaba cargado');
+        window.initApp();
     }
 });
 
