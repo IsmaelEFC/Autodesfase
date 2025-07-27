@@ -451,244 +451,161 @@ async function procesarImagenConOCR(canvas) {
     return text.trim();
   } catch (error) {
     console.error('Error en OCR:', error);
-    throw new Error('Error al procesar la imagen. Intenta nuevamente.');
-  }
-}
 
 // Función para extraer fecha y hora del texto OCR
 function extraerFechaHoraDVR(texto) {
-    // Limpieza del texto conservando caracteres relevantes
-    const textoLimpio = texto.toLowerCase()
-        .replace(/[^a-z0-9:\-\/\sáéíóúü]/g, '')  // Incluye caracteres españoles
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    // Patrón para solo hora (formato HH:MM o HH:MM:SS)
-    const soloHoraPattern = /(\d{2}):(\d{2})(?::(\d{2}))?/;
-    const horaMatch = textoLimpio.match(soloHoraPattern);
-    
-    // Si coincide con un patrón de solo hora y no hay año en el texto
-    if (horaMatch && !/\d{4}/.test(textoLimpio)) {
-        return {
-            dia: 0,
-            mes: 0,
-            año: 0,
-            horas: parseInt(horaMatch[1]),
-            minutos: parseInt(horaMatch[2]),
-            segundos: horaMatch[3] ? parseInt(horaMatch[3]) : 0
-        };
-    }
-
-    // Patrones para todos los formatos especificados
-    const patterns = [
-        // 1. Nuevo formato: "01:01:2023 fri 14:30:45"
+    // Patrones alternativos para diferentes formatos de fecha
+    const patronesAlternativos = [
+        // Formato estándar: dd-mm-aaaa hh:mm:ss
         {
-            regex: /(\d{2}):(\d{2}):(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
-            parser: (match) => ({
-                dia: parseInt(match[1]),
-                mes: parseInt(match[2]),
-                año: parseInt(match[3]),
-                horas: parseInt(match[4]),
-                minutos: parseInt(match[5]),
-                segundos: parseInt(match[6])
+            regex: /(\d{2})[-/.](\d{2})[-/.](\d{4})[\s-]+(\d{2}):(\d{2}):(\d{2})/,
+            handler: (m) => ({
+                dia: parseInt(m[1]),
+                mes: parseInt(m[2]),
+                año: parseInt(m[3]),
+                horas: parseInt(m[4]),
+                minutos: parseInt(m[5]),
+                segundos: parseInt(m[6])
             })
         },
-        // 2. Formatos con hora primero, luego día de semana (ej: 14:30:45 2023-01-01 jue)
+        // Formato americano: mm/dd/aaaa hh:mm:ss
         {
-            regex: /(\d{2}):(\d{2}):(\d{2})\s+(\d{4})[-.\/](\d{2})[-.\/](\d{2})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)/i,
-            parser: (match) => ({
-                dia: parseInt(match[6]),
-                mes: parseInt(match[5]),
-                año: parseInt(match[4]),
-                horas: parseInt(match[1]),
-                minutos: parseInt(match[2]),
-                segundos: parseInt(match[3])
+            regex: /(\d{2})[-/.](\d{2})[-/.](\d{4})[\s-]+(\d{2}):(\d{2}):(\d{2})/,
+            handler: (m) => ({
+                dia: parseInt(m[2]),
+                mes: parseInt(m[1]),
+                año: parseInt(m[3]),
+                horas: parseInt(m[4]),
+                minutos: parseInt(m[5]),
+                segundos: parseInt(m[6])
             })
         },
-        // 2. Formatos con día de semana (jue/fri)
+        // Formato con día de semana: "Lun 15/06/2023 14:30:45"
         {
-            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)\s+(\d{2}):(\d{2}):(\d{2})/i,
-            parser: (match) => ({
-                dia: parseInt(match[1]),
-                mes: parseInt(match[3]),
-                año: parseInt(match[4]),
-                horas: parseInt(match[5]),
-                minutos: parseInt(match[6]),
-                segundos: parseInt(match[7])
-            })
+            regex: /(?:lun|mar|mi[eé]|jue|vie|s[áa]b|dom|mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?/i,
+            handler: (texto) => {
+                // Extraer la parte de fecha y hora después del día de la semana
+                const match = texto.match(/\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?/i);
+                if (!match) throw new Error("Formato de fecha/hora no reconocido");
+                
+                // Procesar la fecha y hora extraídas
+                const partes = match[0].split(/[\s:./-]+/);
+                return {
+                    dia: parseInt(partes[0]),
+                    mes: parseInt(partes[1]),
+                    año: parseInt(partes[2].length === 2 ? '20' + partes[2] : partes[2]),
+                    horas: parseInt(partes[3]),
+                    minutos: parseInt(partes[4]),
+                    segundos: partes[5] ? parseInt(partes[5]) : 0
+                };
+            }
         },
-        // 2. Formatos estándar sin día de semana
+        // Formato solo hora: hh:mm:ss
         {
-            regex: /(\d{2})([-\.\/])(\d{2})\2(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/,
-            parser: (match) => ({
-                dia: parseInt(match[1]),
-                mes: parseInt(match[3]),
-                año: parseInt(match[4]),
-                horas: parseInt(match[5]),
-                minutos: parseInt(match[6]),
-                segundos: parseInt(match[7])
-            })
-        },
-        // 3. Formatos con año al inicio (aaaa-...)
-        {
-            regex: /(\d{4})([-\.\/])(\d{2})\2(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/,
-            parser: (match) => ({
-                dia: parseInt(match[4]),  // Nota: día y mes se invierten en estos formatos
-                mes: parseInt(match[3]),
-                año: parseInt(match[1]),
-                horas: parseInt(match[5]),
-                minutos: parseInt(match[6]),
-                segundos: parseInt(match[7])
+            regex: /(\d{1,2}):(\d{2})(?::(\d{2}))?/,
+            handler: (m) => ({
+                dia: 0,
+                mes: 0,
+                año: 0,
+                horas: parseInt(m[1]),
+                minutos: parseInt(m[2]),
+                segundos: m[3] ? parseInt(m[3]) : 0
             })
         }
     ];
 
-    // Probar todos los patrones
-    for (const { regex, parser } of patterns) {
-        const match = textoLimpio.match(regex);
+    // Intentar cada patrón hasta encontrar uno que coincida
+    for (const patron of patronesAlternativos) {
+        const match = texto.match(patron.regex);
         if (match) {
-            const resultado = parser(match);
-            
-            // Validación estricta de fechas
-            if (validarFechaHora(resultado)) {
+            try {
+                const resultado = patron.handler(match.length > 1 ? match : texto);
+                
+                // Validar los valores extraídos
+                if (resultado.horas < 0 || resultado.horas > 23 || 
+                    resultado.minutos < 0 || resultado.minutos > 59 ||
+                    resultado.segundos < 0 || resultado.segundos > 59) {
+                    continue; // Intentar el siguiente patrón si los valores no son válidos
+                }
+                
+                // Validar fecha si está presente
+                if (resultado.año !== 0) {
+                    const fecha = new Date(resultado.año, resultado.mes - 1, resultado.dia);
+                    if (fecha.getDate() !== resultado.dia || 
+                        fecha.getMonth() !== resultado.mes - 1 || 
+                        fecha.getFullYear() !== resultado.año) {
+                        continue; // Fecha inválida, intentar siguiente patrón
+                    }
+                }
+                
                 return resultado;
+            } catch (e) {
+                console.warn('Error al procesar formato de fecha:', e);
+                continue; // Continuar con el siguiente patrón en caso de error
             }
         }
     }
     
-    throw new Error(`Formato no reconocido. Los formatos válidos son:
-        - dd-mm-aaaa hh:mm:ss
-        - dd/mm/aaaa hh:mm:ss
-        - aaaa-dd-mm hh:mm:ss
-        - aaaa/dd/mm hh:mm:ss
-        - aaaa-mm-dd hh:mm:ss
-        - aaaa/mm/dd hh:mm:ss
-        - Con día de semana (ej: dd-mm-aaaa jue hh:mm:ss)`);
+    throw new Error("Formato de fecha/hora no reconocido. Formatos soportados:\n" +
+                  "- dd-mm-aaaa hh:mm:ss\n" +
+                  "- mm/dd/aaaa hh:mm:ss\n" +
+                  "- [Día] dd/mm/aaaa hh:mm:ss\n" +
+                  "- hh:mm:ss");
 }
 
-// Función de validación mejorada
-function validarFechaHora({ dia, mes, año, horas, minutos, segundos }) {
-    // Validar rangos básicos
-    if (dia < 1 || dia > 31) return false;
-    if (mes < 1 || mes > 12) return false;
-    if (horas < 0 || horas > 23) return false;
-    if (minutos < 0 || minutos > 59) return false;
-    if (segundos < 0 || segundos > 59) return false;
-    
-    // Validar meses con 30 días
-    if ([4, 6, 9, 11].includes(mes) && dia > 30) return false;
-    
-    // Validar febrero (considerando años bisiestos)
-    if (mes === 2) {
-        const esBisiesto = (año % 4 === 0 && año % 100 !== 0) || año % 400 === 0;
-        if (dia > (esBisiesto ? 29 : 28)) return false;
-    }
-    
-    return true;
-}
+// ... (rest of the code remains the same)
 
-function probarTodosFormatos() {
-    const formatos = [
-        "01-01-2023 14:30:45",
-        "01/01/2023 14:30:45",
-        "2023-01-01 14:30:45",
-        "2023/01/01 14:30:45",
-        "2023-01-01 14:30:45",
-        "2023/01/01 14:30:45",
-        "01-01-2023 jue 14:30:45",
-        "01/01/2023 jue 14:30:45",
-        "01-01-2023 fri 14:30:45",
-        "01.01.2023 14:30:45",  // Variación con punto
-        "01-01-2023 mié 14:30:45"  // Con acento
-    ];
-
-    console.log("=== Prueba de todos los formatos ===");
-    formatos.forEach((formato, i) => {
-        try {
-            const resultado = extraerFechaHoraDVR(formato);
-            console.log(`✓ Formato ${i+1}: ${formato}`, resultado);
-        } catch (error) {
-            console.error(`✗ Formato ${i+1}: ${formato} - ERROR: ${error.message}`);
-        }
-    });
-}
-
-// Ejecutar al cargar en desarrollo
-if (window.location.hostname === "localhost") {
-    probarTodosFormatos();
-}
-
-function testFormats() {
-  const tests = [
-    {
-      input: "01-01-2023 14:30:45",
-      expected: { dia: 1, mes: 1, año: 2023, horas: 14, minutos: 30, segundos: 45 }
-    },
-    {
-      input: "14:30",
-      expected: { dia: 0, mes: 0, año: 0, horas: 14, minutos: 30, segundos: 0 }
-    }
-  ];
-
-  tests.forEach(test => {
-    const result = extraerFechaHoraDVR(test.input);
-    const passed = JSON.stringify(result) === JSON.stringify(test.expected);
-    console.log(passed ? '✓' : '✗', test.input, '->', result);
-  });
-}
-
-function debugMatching(input) {
-    const textoLimpio = input.trim()
-        .replace(/[^a-z0-9:\-\/\s]/gi, '')
-        .replace(/\s+/g, ' ');
+// 1. Nueva función de cálculo de diferencia
+function calcularDiferenciaCompleta(fechaDVR, fechaOficial) {
+    // Convertir a objetos Date
+    const dvrDate = new Date(
+        fechaDVR.año, 
+        fechaDVR.mes - 1, 
+        fechaDVR.dia,
+        fechaDVR.horas, 
+        fechaDVR.minutos, 
+        fechaDVR.segundos
+    );
     
-    console.log(`Texto limpio: "${textoLimpio}"`);
-    
-    const patterns = [
-        /(?:^|\s)(\d{2}):(\d{2})(?:\s|$)(?!\d)/,
-        /(?:^|\s)(\d{2}):(\d{2}):(\d{2})(?:\s|$)/
-    ];
-    
-    patterns.forEach((pattern, i) => {
-        const match = textoLimpio.match(pattern);
-        console.log(`Patrón ${i+1}:`, pattern.toString());
-        console.log("Resultado match:", match);
-        if (match) {
-            console.log("Grupos capturados:", 
-                Array.from(match).slice(1).map((v, i) => `Grupo ${i+1}: ${v}`));
-        }
-    });
-}
+    const oficialDate = new Date(
+        fechaOficial.año || new Date().getFullYear(),
+        (fechaOficial.mes || new Date().getMonth() + 1) - 1,
+        fechaOficial.dia || new Date().getDate(),
+        fechaOficial.horas,
+        fechaOficial.minutos,
+        fechaOficial.segundos
+    );
 
-// Ejecutar pruebas al cargar
-testFormats();
+    // Calcular diferencia en milisegundos
+    const diffMs = dvrDate - oficialDate;
+    const absDiffMs = Math.abs(diffMs);
 
-// Función para calcular diferencia de tiempo
-function calcularDiferencia(horaDVR, horaOficial) {
-    // Convertir a segundos para facilitar cálculo
-    const segundosDVR = horaDVR.horas * 3600 + horaDVR.minutos * 60 + horaDVR.segundos;
-    const segundosOficial = horaOficial.horas * 3600 + horaOficial.minutos * 60 + horaOficial.segundos;
-    
-    const diferenciaSegundos = segundosDVR - segundosOficial;
-    
-    // Convertir a formato legible
-    const signo = diferenciaSegundos >= 0 ? '+' : '-';
-    const absDiff = Math.abs(diferenciaSegundos);
-    const horas = Math.floor(absDiff / 3600);
-    const minutos = Math.floor((absDiff % 3600) / 60);
-    const segundos = absDiff % 60;
-    
+    // Descomponer diferencia
+    const dias = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
+    const horas = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutos = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const segundos = Math.floor((absDiffMs % (1000 * 60)) / 1000);
+
     return {
-        segundos: diferenciaSegundos,
-        texto: `${signo} ${horas}h ${minutos}m ${segundos}s`,
-        esExacto: diferenciaSegundos === 0
+        diferenciaMs: diffMs,
+        texto: `${diffMs >= 0 ? '+' : '-'} ${dias}d ${horas}h ${minutos}m ${segundos}s`,
+        esExacto: diffMs === 0,
+        componentes: { dias, horas, minutos, segundos }
     };
 }
 
-// Función para formatear hora
-function formatoHora(h) {
-    return `${h.horas.toString().padStart(2, '0')}:${h.minutos.toString().padStart(2, '0')}:${h.segundos.toString().padStart(2, '0')}`;
+// Función para calcular diferencia de tiempo (compatibilidad con código existente)
+function calcularDiferencia(horaDVR, horaOficial) {
+    const resultado = calcularDiferenciaCompleta(horaDVR, horaOficial);
+    return {
+        ...resultado,
+        delante: resultado.diferenciaMs > 0,
+        atrasado: resultado.diferenciaMs < 0,
+        segundos: Math.abs(Math.floor(resultado.diferenciaMs / 1000))
+    };
 }
+
+// ... (rest of the code remains the same)
 
 // Función para mostrar resultados
 function mostrarResultados(horaDVR, horaOficial, diferencia, textoOCR) {
@@ -704,32 +621,36 @@ function mostrarResultados(horaDVR, horaOficial, diferencia, textoOCR) {
     
     let mensaje = "";
     if (diferencia.esExacto) {
-        mensaje = "✅ El DVR está perfectamente sincronizado";
-    } else if (diferencia.segundos > 0) {
-        mensaje = `⏩ El DVR está ADELANTADO por ${diferencia.texto}`;
+        mensaje = "✅ Sincronización exacta";
     } else {
-        mensaje = `⏪ El DVR está RETRASADO por ${diferencia.texto}`;
+        const prefix = diferencia.diferenciaMs > 0 ? "⏩ Adelantado" : "⏪ Retrasado";
+        mensaje = `${prefix} por ${diferencia.texto}`;
+        
+        // Mostrar advertencia si la diferencia es > 1 día
+        if (Math.abs(diferencia.diferenciaMs) > 86400000) {
+            mensaje += "<br><strong>¡Diferencia significativa!</strong>";
+        }
     }
     
     resultsDiv.innerHTML = `
-        <h3><i class="fas fa-check-circle"></i> Resultado:</h3>
-        <p><strong><i class="fas fa-video"></i> Hora DVR:</strong> ${formatoHora(horaDVR)}</p>
-        <p><strong><i class="fas fa-globe"></i> Hora Oficial:</strong> ${formatoHora(horaOficial)} <small>(${horaOficial.fuente.replace('https://', '')})</small></p>
-        <p class="${diferencia.esExacto ? 'success' : 'error'}"><strong><i class="fas fa-clock"></i> Diferencia:</strong> ${mensaje}</p>
-        
-        <div class="share-buttons">
-            <button class="share-btn whatsapp" onclick="shareViaWhatsApp()">
-                <i class="fab fa-whatsapp"></i> WhatsApp
+        <h3>Resultado de Verificación</h3>
+        <p><strong>Fecha/Hora DVR:</strong> ${horaDVR.dia}/${horaDVR.mes}/${horaDVR.año} ${formatoHora(horaDVR)}</p>
+        <p><strong>Hora Oficial:</strong> ${formatoHora(horaOficial)}</p>
+        <div class="${diferencia.esExacto ? 'success' : 'error'}">${mensaje}</div>
+        <div class="ocr-text">
+            <p><small>Texto reconocido: "${textoOCR}"</small></p>
+        </div>
+        <div class="actions">
+            <button onclick="shareResult()" class="share-btn">
+                <i class="fas fa-share-alt"></i> Compartir
             </button>
-            <button class="share-btn email" onclick="shareViaEmail()">
-                <i class="fas fa-envelope"></i> Email
-            </button>
-            <button class="share-btn clipboard" onclick="shareResult()">
-                <i class="fas fa-copy"></i> Copiar
+            <button onclick="captureAndProcess()" class="refresh-btn">
+                <i class="fas fa-sync-alt"></i> Verificar de nuevo
             </button>
         </div>
     `;
     
+    // Mostrar historial
     mostrarHistorial();
 }
 
@@ -1004,6 +925,51 @@ function initDebugPreview() {
     }, 500);
     
     debugInitialized = true;
+}
+
+// Función para probar el reconocimiento de fechas
+function testFechaCompleta() {
+    const tests = [
+        {
+            input: "15-06-2023 14:30:00",
+            expected: { dia: 15, mes: 6, año: 2023 }
+        },
+        {
+            input: "02/12/2023-08:15:30",
+            expected: { dia: 2, mes: 12, año: 2023 }
+        },
+        {
+            input: "Lun 15/06/2023 14:30:00",
+            expected: { dia: 15, mes: 6, año: 2023 }
+        },
+        {
+            input: "12/31/2023 23:59:59",
+            expected: { dia: 31, mes: 12, año: 2023 }
+        }
+    ];
+
+    console.log("=== Iniciando pruebas de fecha ===");
+    let exitosas = 0;
+    
+    tests.forEach((test, index) => {
+        try {
+            const result = extraerFechaHoraDVR(test.input);
+            const fechaExtraida = { dia: result.dia, mes: result.mes, año: result.año };
+            const esValida = JSON.stringify(fechaExtraida) === JSON.stringify(test.expected);
+            
+            if (esValida) {
+                console.log(`✓ Prueba ${index + 1} PASADA: "${test.input}" -> ${JSON.stringify(fechaExtraida)}`);
+                exitosas++;
+            } else {
+                console.error(`✗ Prueba ${index + 1} FALLIDA: "${test.input}"\n   Esperado: ${JSON.stringify(test.expected)}\n   Obtenido: ${JSON.stringify(fechaExtraida)}`);
+            }
+        } catch (error) {
+            console.error(`✗ Prueba ${index + 1} ERROR: "${test.input}"\n   Error: ${error.message}`);
+        }
+    });
+    
+    console.log(`=== Pruebas completadas: ${exitosas}/${tests.length} exitosas ===`);
+    return exitosas === tests.length;
 }
 
 // Función para mostrar la guía del usuario
